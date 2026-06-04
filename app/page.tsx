@@ -1,4 +1,4 @@
-import Link from 'next/link';
+ï»¿import Link from 'next/link';
 
 export default function HomePage() {
   return (
@@ -19,22 +19,21 @@ export default function HomePage() {
         * { box-sizing: border-box; margin: 0; padding: 0; }
         @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.5} }
       `}</style>
-      <div style={{ fontSize: '0.75rem', fontWeight: 500, letterSpacing: '0.15em', textTransform: 'uppercase', color: '#f07a2e', marginBottom: '24px', display: 'flex', alignItems: 'center', gap: '8px' }}>
-        <span style={{ width: '6px', height: '6px', borderRadius: '50%', background: '#f07a2e', display: 'inline-block', animation: 'pulse 2s ease-in-out infinite' }}></span>
+      <div style={{ fontSize: '0.75rem', fontWeight: 500, letterSpacing: '0.15em', textTransform: 'uppercase', color: '#f07a2e', marginBottom: '24px' }}>
         Now in early access
       </div>
-      <h1 style={{ fontFamily: "'Syne', sans-serif", fontSize: 'clamp(2.5rem, 7vw, 5rem)', fontWeight: 800, letterSpacing: '-0.03em', lineHeight: 1.05, marginBottom: '24px' }}>
-        The AI that rides<br />with your <span style={{ color: '#f07a2e' }}>field reps.</span>
+      <h1 style={{ fontFamily: "'Syne', sans-serif", fontSize: '4rem', fontWeight: 800, letterSpacing: '-0.03em', lineHeight: 1.05, marginBottom: '24px' }}>
+        The AI that rides with your field reps.
       </h1>
       <p style={{ fontSize: '1.1rem', color: '#7a8fa4', maxWidth: '520px', fontWeight: 300, lineHeight: 1.7, marginBottom: '40px' }}>
-        Voice-first. Always learning. Knows your company doctrine. Briefs your reps before every job and coaches them through every objection — hands-free.
+        Voice-first. Always learning. Knows your company doctrine. Briefs your reps before every job.
       </p>
       <div style={{ display: 'flex', gap: '12px', flexWrap: 'wrap', justifyContent: 'center' }}>
         <Link href="/auth" style={{ background: '#f07a2e', color: '#fff', padding: '14px 32px', borderRadius: '8px', textDecoration: 'none', fontSize: '0.95rem', fontWeight: 500 }}>
           Get Started
         </Link>
         <Link href="/dashboard" style={{ background: 'transparent', color: '#7a8fa4', border: '1px solid rgba(255,255,255,0.12)', padding: '14px 32px', borderRadius: '8px', textDecoration: 'none', fontSize: '0.95rem' }}>
-          Go to Dashboard
+          Dashboard
         </Link>
       </div>
     </div>
