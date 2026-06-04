@@ -1,4 +1,4 @@
-import { SignIn } from '@clerk/nextjs';
+﻿import { SignIn } from '@clerk/nextjs';
 
 export default function AuthPage() {
   return (
@@ -9,7 +9,7 @@ export default function AuthPage() {
       alignItems: 'center',
       justifyContent: 'center',
     }}>
-      <SignIn afterSignInUrl="/dashboard" signUpUrl="/auth" />
+      <SignIn afterSignInUrl="/dashboard" afterSignUpUrl="/dashboard" redirectUrl="/dashboard" />
     </div>
   );
 }
