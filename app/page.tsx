@@ -22,7 +22,7 @@ export default function HomePage() {
       <div style={{ fontSize: '0.75rem', fontWeight: 500, letterSpacing: '0.15em', textTransform: 'uppercase', color: '#f07a2e', marginBottom: '24px' }}>
         Now in early access
       </div>
-      <h1 style={{ fontFamily: "'Syne', sans-serif", fontSize: '4rem', fontWeight: 800, letterSpacing: '-0.03em', lineHeight: 1.05, marginBottom: '24px' }}>
+      <h1 style={{ fontFamily: "'Syne', sans-serif", fontSize: '3rem', fontWeight: 800, letterSpacing: '-0.03em', lineHeight: 1.05, marginBottom: '24px', maxWidth: '700px' }}>
         The AI that rides with your field reps.
       </h1>
       <p style={{ fontSize: '1.1rem', color: '#7a8fa4', maxWidth: '520px', fontWeight: 300, lineHeight: 1.7, marginBottom: '40px' }}>
