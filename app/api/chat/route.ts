@@ -21,7 +21,7 @@ When handling objections: give the response directly, do not explain it.
 When debriefing: what went well, what to follow up on.`;
 
     const response = await anthropic.messages.create({
-      model: 'claude-sonnet-4-20250514',
+      model: 'claude-opus-4-5',
       max_tokens: 300,
       system: systemPrompt,
       messages: messages,
