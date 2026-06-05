@@ -20,7 +20,8 @@ export default function JobsPage() {
   }, [user]);
 
   const loadJobs = async () => {
-    const { data } = await supabase.from('jobs').select('*').order('created_at', { ascending: false });
+    const { data, error } = await supabase.from('jobs').select('*').order('created_at', { ascending: false });
+    console.log('jobs data:', data, 'error:', error);
     setJobs(data || []);
     setLoading(false);
   };
@@ -28,7 +29,8 @@ export default function JobsPage() {
   const createJob = async () => {
     if (!customerName.trim()) return;
     setSaving(true);
-    await supabase.from('jobs').insert({ customer_name: customerName, address, notes, status: 'active' });
+    const { error } = await supabase.from('jobs').insert({ customer_name: customerName, address, notes, status: 'active' });
+    console.log('insert error:', error);
     setCustomerName(''); setAddress(''); setNotes('');
     setShowNew(false);
     setSaving(false);
@@ -38,7 +40,7 @@ export default function JobsPage() {
   return (
     <div style={{ background: '#0b0f14', minHeight: '100vh', color: '#e8edf2', fontFamily: "'DM Sans', sans-serif" }}>
       <style>{`@import url('https://fonts.googleapis.com/css2?family=Syne:wght@700;800&family=DM+Sans:wght@300;400;500&display=swap'); * { box-sizing:border-box; margin:0; padding:0; }`}</style>
-      <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', padding:'16px 24px', borderBottom:'1px solid rgba(255,255,255,0.07)', background:'rgba(11,15,20,0.95)', backdropFilter:'blur(20px)', position:'sticky', top:0, zIndex:100 }}>
+      <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', padding:'16px 24px', borderBottom:'1px solid rgba(255,255,255,0.07)', background:'rgba(11,15,20,0.95)', position:'sticky', top:0, zIndex:100 }}>
         <Link href="/dashboard" style={{ fontFamily:"'Syne', sans-serif", fontSize:'1.1rem', fontWeight:800, textDecoration:'none', color:'#e8edf2' }}>Remy<span style={{ color:'#f07a2e' }}>.</span></Link>
         <Link href="/dashboard" style={{ fontSize:'0.8rem', color:'#7a8fa4', textDecoration:'none' }}>Back</Link>
       </div>
@@ -56,7 +58,7 @@ export default function JobsPage() {
             <div style={{ fontFamily:"'Syne', sans-serif", fontWeight:700, marginBottom:'16px' }}>New Job</div>
             <input value={customerName} onChange={e => setCustomerName(e.target.value)} placeholder="Customer name *" style={{ width:'100%', background:'#0b0f14', border:'1px solid rgba(255,255,255,0.08)', borderRadius:'8px', padding:'10px 14px', color:'#e8edf2', fontFamily:"'DM Sans', sans-serif", fontSize:'0.9rem', outline:'none', marginBottom:'10px' }} />
             <input value={address} onChange={e => setAddress(e.target.value)} placeholder="Address" style={{ width:'100%', background:'#0b0f14', border:'1px solid rgba(255,255,255,0.08)', borderRadius:'8px', padding:'10px 14px', color:'#e8edf2', fontFamily:"'DM Sans', sans-serif", fontSize:'0.9rem', outline:'none', marginBottom:'10px' }} />
-            <textarea value={notes} onChange={e => setNotes(e.target.value)} placeholder="Notes - what do you know about this job?" rows={3} style={{ width:'100%', background:'#0b0f14', border:'1px solid rgba(255,255,255,0.08)', borderRadius:'8px', padding:'10px 14px', color:'#e8edf2', fontFamily:"'DM Sans', sans-serif", fontSize:'0.9rem', outline:'none', resize:'vertical', marginBottom:'14px' }} />
+            <textarea value={notes} onChange={e => setNotes(e.target.value)} placeholder="Notes about this job" rows={3} style={{ width:'100%', background:'#0b0f14', border:'1px solid rgba(255,255,255,0.08)', borderRadius:'8px', padding:'10px 14px', color:'#e8edf2', fontFamily:"'DM Sans', sans-serif", fontSize:'0.9rem', outline:'none', resize:'vertical', marginBottom:'14px' }} />
             <div style={{ display:'flex', gap:'10px' }}>
               <button onClick={createJob} disabled={saving} style={{ background:'#f07a2e', color:'#fff', border:'none', padding:'10px 20px', borderRadius:'8px', fontFamily:"'DM Sans', sans-serif", fontSize:'0.85rem', fontWeight:500, cursor:'pointer' }}>{saving ? 'Saving...' : 'Create Job'}</button>
               <button onClick={() => setShowNew(false)} style={{ background:'transparent', color:'#7a8fa4', border:'1px solid rgba(255,255,255,0.08)', padding:'10px 20px', borderRadius:'8px', fontFamily:"'DM Sans', sans-serif", fontSize:'0.85rem', cursor:'pointer' }}>Cancel</button>
@@ -68,8 +70,7 @@ export default function JobsPage() {
           <div style={{ color:'#7a8fa4', textAlign:'center', padding:'40px' }}>Loading...</div>
         ) : jobs.length === 0 ? (
           <div style={{ background:'#111820', border:'1px solid rgba(255,255,255,0.08)', borderRadius:'12px', padding:'48px', textAlign:'center' }}>
-            <div style={{ fontSize:'2rem', marginBottom:'12px' }}>📋</div>
-            <div style={{ color:'#7a8fa4', fontSize:'0.9rem', fontWeight:300 }}>No jobs yet. Create your first job and let Remy brief you.</div>
+            <div style={{ color:'#7a8fa4', fontSize:'0.9rem', fontWeight:300 }}>No jobs yet. Create your first job above.</div>
           </div>
         ) : (
           <div style={{ display:'flex', flexDirection:'column', gap:'10px' }}>
@@ -78,8 +79,9 @@ export default function JobsPage() {
                 <div>
                   <div style={{ fontWeight:500, marginBottom:'4px' }}>{job.customer_name}</div>
                   {job.address && <div style={{ fontSize:'0.82rem', color:'#7a8fa4', fontWeight:300 }}>{job.address}</div>}
+                  <div style={{ fontSize:'0.68rem', color: job.status === 'active' ? '#3daf76' : '#3d5268', marginTop:'4px', textTransform:'uppercase', letterSpacing:'0.08em' }}>{job.status}</div>
                 </div>
-                <Link href="/dashboard/voice" style={{ background:'rgba(240,122,46,0.1)', border:'1px solid rgba(240,122,46,0.2)', color:'#f07a2e', padding:'8px 16px', borderRadius:'6px', textDecoration:'none', fontSize:'0.78rem', fontWeight:500 }}>Talk to Remy</Link>
+                <Link href={`/dashboard/voice?jobId=${job.id}&jobName=${encodeURIComponent(job.customer_name)}`} style={{ background:'rgba(240,122,46,0.1)', border:'1px solid rgba(240,122,46,0.2)', color:'#f07a2e', padding:'8px 16px', borderRadius:'6px', textDecoration:'none', fontSize:'0.78rem', fontWeight:500 }}>Talk to Remy</Link>
               </div>
             ))}
           </div>
