@@ -13,6 +13,7 @@
     "@clerk/nextjs": "^6.39.5",
     "@stripe/stripe-js": "^9.7.0",
     "@supabase/supabase-js": "^2.107.0",
+    "cartesia-js": "^1.0.2",
     "next": "14.2.35",
     "react": "^18",
     "react-dom": "^18",
