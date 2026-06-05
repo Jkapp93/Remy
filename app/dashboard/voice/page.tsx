@@ -6,7 +6,7 @@ import { useSearchParams } from 'next/navigation';
 import { supabase } from '../../../lib/supabase';
 
 function VoiceInner() {
-  const { user } = useUser();
+  const { isLoaded } = useUser();
   const searchParams = useSearchParams();
   const [messages, setMessages] = useState<{role: string; content: string}[]>([]);
   const [input, setInput] = useState('');
@@ -28,10 +28,10 @@ function VoiceInner() {
   }, [messages]);
 
   useEffect(() => {
-    if (!user || initialized.current) return;
+    if (!isLoaded || initialized.current) return;
     initialized.current = true;
     init();
-  }, [user]);
+  }, [isLoaded]);
 
   const init = async () => {
     const { data: docData } = await supabase.from('doctrine').select('content').eq('active', true);
@@ -48,16 +48,18 @@ function VoiceInner() {
       const found = allJobs.find((j: {id: string}) => j.id === jobId);
       if (found) {
         setActiveJob(found);
-        const greeting = `Hey${user?.firstName ? ` ${user.firstName}` : ''}. Loading brief for ${found.customer_name} now.`;
-        const greetingMsg = [{ role: 'assistant', content: greeting }];
-        setMessages(greetingMsg);
-        const briefPrompt = `Brief me fast. Pulling up to ${found.customer_name}${found.address ? ` at ${found.address}` : ''}${found.notes ? `. Notes: ${found.notes}` : ''}.`;
-        await doSend(briefPrompt, greetingMsg, docText, found);
+        const greeting = `Loading brief for ${found.customer_name} now.`;
+        const greetingMsgs = [{ role: 'assistant', content: greeting }];
+        setMessages(greetingMsgs);
+        await doSend(
+          `Brief me fast. Pulling up to ${found.customer_name}${found.address ? ` at ${found.address}` : ''}${found.notes ? `. Notes: ${found.notes}` : ''}.`,
+          greetingMsgs, docText, found
+        );
         return;
       }
     }
 
-    setMessages([{ role: 'assistant', content: `Hey${user?.firstName ? ` ${user.firstName}` : ''}. I am Remy. Select a job above and I will brief you before you knock. Or just tell me what you are walking into.` }]);
+    setMessages([{ role: 'assistant', content: `Hey. I am Remy. Select a job above and I will brief you before you knock. Or just tell me what you are walking into.` }]);
   };
 
   const playAudio = async (url: string) => {
@@ -150,8 +152,10 @@ function VoiceInner() {
   const selectJob = (job: {id: string; customer_name: string; address: string; notes: string; status: string}) => {
     setActiveJob(job);
     setShowJobPicker(false);
-    const briefPrompt = `Brief me fast. Pulling up to ${job.customer_name}${job.address ? ` at ${job.address}` : ''}${job.notes ? `. Notes: ${job.notes}` : ''}.`;
-    doSend(briefPrompt, messages, doctrine, job);
+    doSend(
+      `Brief me fast. Pulling up to ${job.customer_name}${job.address ? ` at ${job.address}` : ''}${job.notes ? `. Notes: ${job.notes}` : ''}.`,
+      messages, doctrine, job
+    );
   };
 
   return (
@@ -159,20 +163,19 @@ function VoiceInner() {
       <style>{`
         @import url('https://fonts.googleapis.com/css2?family=Syne:wght@700;800&family=DM+Sans:wght@300;400;500&display=swap');
         * { box-sizing:border-box; margin:0; padding:0; }
-        @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.5} }
-        @keyframes ripple { 0%{transform:scale(1);opacity:0.5} 100%{transform:scale(2.8);opacity:0} }
         @keyframes glow { 0%,100%{box-shadow:0 0 20px rgba(240,122,46,0.4)} 50%{box-shadow:0 0 50px rgba(240,122,46,0.9)} }
+        @keyframes ripple { 0%{transform:scale(1);opacity:0.5} 100%{transform:scale(2.8);opacity:0} }
         @keyframes bounce { 0%,80%,100%{transform:scale(0.8);opacity:0.5} 40%{transform:scale(1.2);opacity:1} }
         .mic-wrap { position:relative; width:52px; height:52px; flex-shrink:0; }
-        .mic-btn { width:52px; height:52px; border-radius:50%; display:flex; align-items:center; justify-content:center; cursor:pointer; border:none; font-size:1.1rem; transition:all 0.2s; position:relative; z-index:1; font-family:'DM Sans',sans-serif; font-weight:500; }
+        .mic-btn { width:52px; height:52px; border-radius:50%; display:flex; align-items:center; justify-content:center; cursor:pointer; border:none; font-size:0.8rem; font-weight:600; letter-spacing:0.05em; transition:all 0.2s; position:relative; z-index:1; font-family:'DM Sans',sans-serif; }
         .mic-idle { background:rgba(240,122,46,0.1); border:1.5px solid rgba(240,122,46,0.35); color:#f07a2e; }
-        .mic-on { background:#f07a2e; animation:glow 1s ease-in-out infinite; color:#fff; }
+        .mic-on { background:#f07a2e; animation:glow 1s ease-in-out infinite; color:#fff; border:none; }
         .ripple-ring { position:absolute; inset:-4px; border-radius:50%; border:2px solid #f07a2e; animation:ripple 1.2s ease-out infinite; pointer-events:none; }
         .msg-input { flex:1; background:#111820; border:1px solid rgba(255,255,255,0.07); border-radius:28px; padding:13px 18px; color:#e8edf2; font-family:'DM Sans',sans-serif; font-size:0.9rem; outline:none; }
         .msg-input::placeholder { color:#2d3f52; }
         .send-btn { padding:13px 20px; background:#f07a2e; border:none; border-radius:28px; color:#fff; font-family:'DM Sans',sans-serif; font-size:0.85rem; font-weight:500; cursor:pointer; flex-shrink:0; }
         .send-btn:disabled { opacity:0.4; cursor:not-allowed; }
-        .job-item { padding:10px 14px; background:#0b0f14; border:1px solid rgba(255,255,255,0.05); border-radius:8px; cursor:pointer; transition:border-color 0.2s; }
+        .job-item { padding:10px 14px; background:#0b0f14; border:1px solid rgba(255,255,255,0.05); border-radius:8px; cursor:pointer; }
         .job-item:hover { border-color:rgba(240,122,46,0.3); }
       `}</style>
 
