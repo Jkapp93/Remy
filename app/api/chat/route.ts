@@ -21,7 +21,7 @@ When handling objections: give the response directly, do not explain it.
 When debriefing: what went well, what to follow up on.`;
 
     const response = await anthropic.messages.create({
-      model: 'claude-opus-4-5',
+      model: 'claude-sonnet-4-6',
       max_tokens: 300,
       system: systemPrompt,
       messages: messages,
@@ -35,6 +35,6 @@ When debriefing: what went well, what to follow up on.`;
     return NextResponse.json({ message: text });
   } catch (error) {
     console.error('Chat error:', error);
-    return NextResponse.json({ error: 'Failed to get response', message: 'Something went wrong. Try again.' }, { status: 500 });
+    return NextResponse.json({ error: 'Failed', message: 'Something went wrong. Try again.' }, { status: 500 });
   }
 }
