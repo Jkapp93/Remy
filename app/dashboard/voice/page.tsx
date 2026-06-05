@@ -29,6 +29,21 @@ function VoiceInner() {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages]);
 
+  // Cleanup on unmount
+  useEffect(() => {
+    return () => {
+      if (audioRef.current) {
+        audioRef.current.pause();
+        audioRef.current.src = '';
+        audioRef.current = null;
+      }
+      if (recognitionRef.current) {
+        recognitionRef.current.stop();
+        recognitionRef.current = null;
+      }
+    };
+  }, []);
+
   useEffect(() => {
     if (!isLoaded || initialized.current) return;
     initialized.current = true;
@@ -68,10 +83,20 @@ function VoiceInner() {
     setMessages([{ role: 'assistant', content: `Hey. I am Remy. Select a job above and I will brief you before you knock. Or just tell me what you are walking into.` }]);
   };
 
+  const stopAudio = () => {
+    if (audioRef.current) {
+      audioRef.current.pause();
+      audioRef.current.src = '';
+      audioRef.current = null;
+    }
+    setSpeaking(false);
+    setPendingAudio(null);
+  };
+
   const playAudio = async (url: string) => {
+    stopAudio();
     setSpeaking(true);
     setPendingAudio(null);
-    if (audioRef.current) { audioRef.current.pause(); audioRef.current = null; }
     const audio = new Audio(url);
     audioRef.current = audio;
     audio.onended = () => { setSpeaking(false); URL.revokeObjectURL(url); };
@@ -139,7 +164,7 @@ function VoiceInner() {
 
   const startListening = () => {
     if (listening) { recognitionRef.current?.stop(); setListening(false); return; }
-    if (speaking) { audioRef.current?.pause(); setSpeaking(false); }
+    if (speaking) stopAudio();
     const SR = (window as any).webkitSpeechRecognition || (window as any).SpeechRecognition;
     if (!SR) { alert('Use Chrome for voice.'); return; }
     const r = new SR();
@@ -175,7 +200,7 @@ function VoiceInner() {
         @keyframes glow { 0%,100%{box-shadow:0 0 20px rgba(240,122,46,0.4)} 50%{box-shadow:0 0 50px rgba(240,122,46,0.9)} }
         @keyframes ripple { 0%{transform:scale(1);opacity:0.5} 100%{transform:scale(2.8);opacity:0} }
         @keyframes bounce { 0%,80%,100%{transform:scale(0.8);opacity:0.5} 40%{transform:scale(1.2);opacity:1} }
-        .mic-btn { width:52px; height:52px; border-radius:50%; display:flex; align-items:center; justify-content:center; cursor:pointer; border:none; font-size:0.75rem; font-weight:600; transition:all 0.2s; position:relative; font-family:'DM Sans',sans-serif; flex-shrink:0; }
+        .mic-btn { width:52px; height:52px; border-radius:50%; display:flex; align-items:center; justify-content:center; cursor:pointer; border:none; font-size:0.75rem; font-weight:600; transition:all 0.2s; font-family:'DM Sans',sans-serif; flex-shrink:0; }
         .mic-idle { background:rgba(240,122,46,0.1); border:1.5px solid rgba(240,122,46,0.35); color:#f07a2e; }
         .mic-on { background:#f07a2e; animation:glow 1s ease-in-out infinite; color:#fff; border:none; }
         .mic-on::after { content:''; position:absolute; inset:-4px; border-radius:50%; border:2px solid #f07a2e; animation:ripple 1.2s ease-out infinite; pointer-events:none; }
@@ -185,7 +210,7 @@ function VoiceInner() {
         .send-btn:disabled { opacity:0.4; cursor:not-allowed; }
         .job-item { padding:10px 14px; background:#0b0f14; border:1px solid rgba(255,255,255,0.05); border-radius:8px; cursor:pointer; margin-bottom:6px; }
         .job-item:hover { border-color:rgba(240,122,46,0.3); }
-        .debrief-btn { padding:8px 16px; background:rgba(61,175,118,0.1); border:1px solid rgba(61,175,118,0.25); color:#3daf76; border-radius:20px; font-family:'DM Sans',sans-serif; font-size:0.72rem; font-weight:500; cursor:pointer; white-space:nowrap; }
+        .debrief-btn { padding:7px 14px; background:rgba(61,175,118,0.1); border:1px solid rgba(61,175,118,0.25); color:#3daf76; border-radius:20px; font-family:'DM Sans',sans-serif; font-size:0.68rem; font-weight:500; cursor:pointer; white-space:nowrap; }
         .debrief-btn:disabled { opacity:0.4; cursor:not-allowed; }
       `}</style>
 
@@ -194,13 +219,17 @@ function VoiceInner() {
           Remy<span style={{ color:'#f07a2e' }}>.</span>
         </Link>
         <div style={{ display:'flex', alignItems:'center', gap:'6px', flex:1, justifyContent:'center', overflow:'hidden' }}>
-          {speaking && <span style={{ fontSize:'0.62rem', color:'#3daf76', fontWeight:600, letterSpacing:'0.1em', textTransform:'uppercase', flexShrink:0 }}>Speaking</span>}
+          {speaking && (
+            <button onClick={stopAudio} style={{ fontSize:'0.62rem', color:'#3daf76', fontWeight:600, letterSpacing:'0.1em', textTransform:'uppercase', flexShrink:0, background:'none', border:'none', cursor:'pointer' }}>
+              Speaking (tap to stop)
+            </button>
+          )}
           {listening && <span style={{ fontSize:'0.62rem', color:'#f07a2e', fontWeight:600, letterSpacing:'0.1em', textTransform:'uppercase', flexShrink:0 }}>Listening</span>}
-          <div onClick={() => setShowJobPicker(!showJobPicker)} style={{ display:'inline-flex', alignItems:'center', gap:'5px', background:'rgba(240,122,46,0.08)', border:'1px solid rgba(240,122,46,0.2)', borderRadius:'100px', padding:'5px 12px', fontSize:'0.7rem', color:'#f07a2e', cursor:'pointer', fontWeight:500, whiteSpace:'nowrap', overflow:'hidden', textOverflow:'ellipsis', maxWidth:'160px' }}>
-            {activeJob ? `${activeJob.customer_name}` : '+ Job'}
+          <div onClick={() => setShowJobPicker(!showJobPicker)} style={{ display:'inline-flex', alignItems:'center', gap:'5px', background:'rgba(240,122,46,0.08)', border:'1px solid rgba(240,122,46,0.2)', borderRadius:'100px', padding:'5px 12px', fontSize:'0.7rem', color:'#f07a2e', cursor:'pointer', fontWeight:500, whiteSpace:'nowrap', overflow:'hidden', textOverflow:'ellipsis', maxWidth:'150px' }}>
+            {activeJob ? activeJob.customer_name : '+ Job'}
           </div>
           <button className="debrief-btn" onClick={saveSession} disabled={sessionSaved || messages.length < 2}>
-            {sessionSaved ? 'Saved' : 'Save Session'}
+            {sessionSaved ? 'Saved' : 'Save'}
           </button>
         </div>
         <Link href="/dashboard" style={{ fontSize:'0.72rem', color:'#2d3f52', textDecoration:'none', flexShrink:0 }}>Back</Link>
@@ -250,7 +279,7 @@ function VoiceInner() {
 
       <div style={{ padding:'12px 16px', borderTop:'1px solid rgba(255,255,255,0.06)', background:'rgba(11,15,20,0.98)', flexShrink:0, paddingBottom:'max(12px, env(safe-area-inset-bottom))' }}>
         <div style={{ display:'flex', gap:'10px', alignItems:'center' }}>
-          <button className={`mic-btn ${listening ? 'mic-on' : 'mic-idle'}`} onClick={startListening}>
+          <button className={`mic-btn ${listening ? 'mic-on' : 'mic-idle'}`} onClick={startListening} style={{ position:'relative' }}>
             {listening ? 'Stop' : 'Mic'}
           </button>
           <input className="msg-input" value={input} onChange={e => setInput(e.target.value)} onKeyDown={e => { if (e.key === 'Enter') handleSend(); }} placeholder={listening ? 'Listening...' : 'Type or tap mic...'} disabled={listening} />
