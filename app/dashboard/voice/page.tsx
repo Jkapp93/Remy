@@ -48,13 +48,8 @@ function VoiceInner() {
       const found = allJobs.find((j: {id: string}) => j.id === jobId);
       if (found) {
         setActiveJob(found);
-        const greeting = `Loading brief for ${found.customer_name} now.`;
-        const greetingMsgs = [{ role: 'assistant', content: greeting }];
-        setMessages(greetingMsgs);
-        await doSend(
-          `Brief me fast. Pulling up to ${found.customer_name}${found.address ? ` at ${found.address}` : ''}${found.notes ? `. Notes: ${found.notes}` : ''}.`,
-          greetingMsgs, docText, found
-        );
+        const briefPrompt = `Brief me fast. Pulling up to ${found.customer_name}${found.address ? ` at ${found.address}` : ''}${found.notes ? `. Notes: ${found.notes}` : ''}.`;
+        await doSend(briefPrompt, [], docText, found);
         return;
       }
     }
@@ -65,7 +60,7 @@ function VoiceInner() {
   const playAudio = async (url: string) => {
     setSpeaking(true);
     setPendingAudio(null);
-    if (audioRef.current) audioRef.current.pause();
+    if (audioRef.current) { audioRef.current.pause(); audioRef.current = null; }
     const audio = new Audio(url);
     audioRef.current = audio;
     audio.onended = () => { setSpeaking(false); URL.revokeObjectURL(url); };
