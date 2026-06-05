@@ -18,14 +18,22 @@ function VoiceInner() {
   const [jobs, setJobs] = useState<{id: string; customer_name: string; address: string; notes: string; status: string}[]>([]);
   const [activeJob, setActiveJob] = useState<{id: string; customer_name: string; address: string; notes: string; status: string} | null>(null);
   const [showJobPicker, setShowJobPicker] = useState(false);
-  const [audioUnlocked, setAudioUnlocked] = useState(false);
-  const [pendingText, setPendingText] = useState<string | null>(null);
   const [sessionSaved, setSessionSaved] = useState(false);
+  const [audioReady, setAudioReady] = useState(false);
   const bottomRef = useRef<HTMLDivElement>(null);
   const audioRef = useRef<HTMLAudioElement | null>(null);
-  const audioCtxRef = useRef<AudioContext | null>(null);
   const recognitionRef = useRef<any>(null);
   const initialized = useRef(false);
+  const messagesRef = useRef(messages);
+  const doctrineRef = useRef(doctrine);
+  const activeJobRef = useRef(activeJob);
+  const memoriesRef = useRef(memories);
+
+  // Keep refs in sync
+  useEffect(() => { messagesRef.current = messages; }, [messages]);
+  useEffect(() => { doctrineRef.current = doctrine; }, [doctrine]);
+  useEffect(() => { activeJobRef.current = activeJob; }, [activeJob]);
+  useEffect(() => { memoriesRef.current = memories; }, [memories]);
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -37,28 +45,55 @@ function VoiceInner() {
     init();
   }, [isLoaded]);
 
-  // Cleanup on unmount
+  // Auto-save session when user leaves
   useEffect(() => {
+    const handleVisibilityChange = () => {
+      if (document.hidden && messagesRef.current.length >= 4) {
+        autoSaveSession();
+      }
+    };
+    document.addEventListener('visibilitychange', handleVisibilityChange);
     return () => {
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
       stopAudio();
-      if (recognitionRef.current) { recognitionRef.current.stop(); }
+      if (recognitionRef.current) recognitionRef.current.stop();
+      // Auto-save on unmount if enough messages
+      if (messagesRef.current.length >= 4) autoSaveSession();
     };
   }, []);
+
+  const autoSaveSession = async () => {
+    if (sessionSaved || messagesRef.current.length < 4) return;
+    try {
+      await fetch('/api/memory', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          messages: messagesRef.current,
+          repId: user?.id,
+          jobContext: activeJobRef.current ? `Job: ${activeJobRef.current.customer_name}` : ''
+        }),
+      });
+      setSessionSaved(true);
+    } catch { /* silent */ }
+  };
 
   const init = async () => {
     const { data: docData } = await supabase.from('doctrine').select('content').eq('active', true);
     const docText = docData ? docData.map((d: {content: string}) => d.content).join('\n') : '';
     setDoctrine(docText);
 
-    const { data: jobData } = await supabase.from('jobs').select('*').order('created_at', { ascending: false });
+    const { data: jobData } = await supabase.from('jobs').select('*').eq('status', 'active').order('created_at', { ascending: false });
     const allJobs = jobData || [];
     setJobs(allJobs);
 
+    let repMemories: {content: string}[] = [];
     if (user?.id) {
       try {
         const memRes = await fetch(`/api/memory?repId=${user.id}`);
         const memData = await memRes.json();
-        setMemories(memData.memories || []);
+        repMemories = memData.memories || [];
+        setMemories(repMemories);
       } catch { /* no memories yet */ }
     }
 
@@ -67,30 +102,23 @@ function VoiceInner() {
       const found = allJobs.find((j: {id: string}) => j.id === jobId);
       if (found) {
         setActiveJob(found);
-        const briefPrompt = `Brief me fast. Pulling up to ${found.customer_name}${found.address ? ` at ${found.address}` : ''}${found.notes ? `. Notes: ${found.notes}` : ''}.`;
-        await doSend(briefPrompt, [], docText, found, []);
+        await doSend(
+          `Brief me fast. Pulling up to ${found.customer_name}${found.address ? ` at ${found.address}` : ''}${found.notes ? `. Notes: ${found.notes}` : ''}.`,
+          [], docText, found, repMemories
+        );
         return;
       }
     }
 
-    setMessages([{ role: 'assistant', content: `Hey. I am Remy. Tap the mic or select a job above and I will brief you before you knock.` }]);
-  };
+    // Morning brief if jobs exist
+    if (allJobs.length > 0) {
+      const jobList = allJobs.slice(0, 5).map((j: {customer_name: string; address: string}) => `${j.customer_name}${j.address ? ` at ${j.address}` : ''}`).join(', ');
+      const morningPrompt = `Give me a quick morning brief. I have ${allJobs.length} active job${allJobs.length > 1 ? 's' : ''} today: ${jobList}. What should I know to start the day strong?`;
+      await doSend(morningPrompt, [], docText, null, repMemories);
+      return;
+    }
 
-  const unlockAudio = () => {
-    if (audioUnlocked) return;
-    try {
-      const AudioCtx = window.AudioContext || (window as any).webkitAudioContext;
-      if (AudioCtx) {
-        const ctx = new AudioCtx();
-        audioCtxRef.current = ctx;
-        const buffer = ctx.createBuffer(1, 1, 22050);
-        const source = ctx.createBufferSource();
-        source.buffer = buffer;
-        source.connect(ctx.destination);
-        source.start(0);
-      }
-      setAudioUnlocked(true);
-    } catch { /* ignore */ }
+    setMessages([{ role: 'assistant', content: `Hey. I am Remy. No active jobs yet. Create one in Jobs and I will brief you before you knock. Or just tell me what you are walking into.` }]);
   };
 
   const stopAudio = () => {
@@ -104,23 +132,21 @@ function VoiceInner() {
       (window as any).__remyAudio = null;
     }
     setSpeaking(false);
-    setPendingText(null);
   };
 
   const playAudioUrl = async (url: string) => {
     stopAudio();
     setSpeaking(true);
     const audio = new Audio(url);
-    audio.preload = 'auto';
     audioRef.current = audio;
     (window as any).__remyAudio = audio;
     audio.onended = () => { setSpeaking(false); URL.revokeObjectURL(url); audioRef.current = null; (window as any).__remyAudio = null; };
     audio.onerror = () => { setSpeaking(false); URL.revokeObjectURL(url); };
     try {
       await audio.play();
+      setAudioReady(true);
     } catch {
       setSpeaking(false);
-      // Store text so user can tap to replay
     }
   };
 
@@ -133,10 +159,7 @@ function VoiceInner() {
       });
       if (!res.ok) return;
       const blob = await res.blob();
-      const url = URL.createObjectURL(blob);
-      setPendingText(text);
-      await playAudioUrl(url);
-      setPendingText(null);
+      await playAudioUrl(URL.createObjectURL(blob));
     } catch { setSpeaking(false); }
   };
 
@@ -169,27 +192,13 @@ function VoiceInner() {
   };
 
   const handleSend = () => {
-    unlockAudio();
     if (!input.trim() || loading) return;
     const text = input;
     setInput('');
     doSend(text, messages, doctrine, activeJob, memories);
   };
 
-  const saveSession = async () => {
-    if (messages.length < 2 || sessionSaved) return;
-    try {
-      await fetch('/api/memory', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ messages, repId: user?.id, jobContext: activeJob ? `Job: ${activeJob.customer_name}` : '' }),
-      });
-      setSessionSaved(true);
-    } catch { /* silent */ }
-  };
-
   const startListening = () => {
-    unlockAudio();
     if (listening) { recognitionRef.current?.stop(); setListening(false); return; }
     if (speaking) stopAudio();
     const SR = (window as any).webkitSpeechRecognition || (window as any).SpeechRecognition;
@@ -211,7 +220,6 @@ function VoiceInner() {
   };
 
   const selectJob = (job: {id: string; customer_name: string; address: string; notes: string; status: string}) => {
-    unlockAudio();
     setActiveJob(job);
     setShowJobPicker(false);
     doSend(
@@ -221,14 +229,14 @@ function VoiceInner() {
   };
 
   return (
-    <div style={{ background: '#0b0f14', height: '100dvh', color: '#e8edf2', fontFamily: "'DM Sans', sans-serif", display: 'flex', flexDirection: 'column', overflow: 'hidden' }} onClick={unlockAudio}>
+    <div style={{ background: '#0b0f14', height: '100dvh', color: '#e8edf2', fontFamily: "'DM Sans', sans-serif", display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
       <style>{`
         @import url('https://fonts.googleapis.com/css2?family=Syne:wght@700;800&family=DM+Sans:wght@300;400;500&display=swap');
         * { box-sizing:border-box; margin:0; padding:0; }
         @keyframes glow { 0%,100%{box-shadow:0 0 20px rgba(240,122,46,0.4)} 50%{box-shadow:0 0 50px rgba(240,122,46,0.9)} }
         @keyframes ripple { 0%{transform:scale(1);opacity:0.5} 100%{transform:scale(2.8);opacity:0} }
         @keyframes bounce { 0%,80%,100%{transform:scale(0.8);opacity:0.5} 40%{transform:scale(1.2);opacity:1} }
-        .mic-btn { width:56px; height:56px; border-radius:50%; display:flex; align-items:center; justify-content:center; cursor:pointer; border:none; font-size:0.75rem; font-weight:600; transition:all 0.2s; font-family:'DM Sans',sans-serif; flex-shrink:0; -webkit-tap-highlight-color: transparent; }
+        .mic-btn { width:56px; height:56px; border-radius:50%; display:flex; align-items:center; justify-content:center; cursor:pointer; border:none; font-size:0.75rem; font-weight:600; transition:all 0.2s; font-family:'DM Sans',sans-serif; flex-shrink:0; -webkit-tap-highlight-color:transparent; }
         .mic-idle { background:rgba(240,122,46,0.1); border:1.5px solid rgba(240,122,46,0.35); color:#f07a2e; }
         .mic-on { background:#f07a2e; animation:glow 1s ease-in-out infinite; color:#fff; border:none; position:relative; }
         .mic-on::after { content:''; position:absolute; inset:-6px; border-radius:50%; border:2px solid rgba(240,122,46,0.5); animation:ripple 1.2s ease-out infinite; pointer-events:none; }
@@ -237,10 +245,12 @@ function VoiceInner() {
         .send-btn { padding:14px 20px; background:#f07a2e; border:none; border-radius:28px; color:#fff; font-family:'DM Sans',sans-serif; font-size:0.85rem; font-weight:500; cursor:pointer; flex-shrink:0; -webkit-tap-highlight-color:transparent; }
         .send-btn:disabled { opacity:0.4; }
         .job-item { padding:12px 14px; background:#0b0f14; border:1px solid rgba(255,255,255,0.05); border-radius:8px; cursor:pointer; margin-bottom:6px; -webkit-tap-highlight-color:transparent; }
-        .debrief-btn { padding:7px 14px; background:rgba(61,175,118,0.1); border:1px solid rgba(61,175,118,0.25); color:#3daf76; border-radius:20px; font-family:'DM Sans',sans-serif; font-size:0.68rem; font-weight:500; cursor:pointer; white-space:nowrap; -webkit-tap-highlight-color:transparent; }
-        .debrief-btn:disabled { opacity:0.4; }
+        .job-item:hover { border-color:rgba(240,122,46,0.3); }
+        .save-btn { padding:7px 14px; background:rgba(61,175,118,0.1); border:1px solid rgba(61,175,118,0.25); color:#3daf76; border-radius:20px; font-family:'DM Sans',sans-serif; font-size:0.68rem; font-weight:500; cursor:pointer; white-space:nowrap; -webkit-tap-highlight-color:transparent; }
+        .save-btn:disabled { opacity:0.4; }
       `}</style>
 
+      {/* Topbar */}
       <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', padding:'12px 16px', borderBottom:'1px solid rgba(255,255,255,0.06)', background:'rgba(11,15,20,0.98)', flexShrink:0, gap:'8px' }}>
         <Link href="/dashboard" style={{ fontFamily:"'Syne',sans-serif", fontSize:'1.1rem', fontWeight:800, textDecoration:'none', color:'#e8edf2', flexShrink:0 }}>
           Remy<span style={{ color:'#f07a2e' }}>.</span>
@@ -248,27 +258,28 @@ function VoiceInner() {
         <div style={{ display:'flex', alignItems:'center', gap:'6px', flex:1, justifyContent:'center', overflow:'hidden' }}>
           {speaking && (
             <button onClick={stopAudio} style={{ fontSize:'0.62rem', color:'#3daf76', fontWeight:600, letterSpacing:'0.1em', textTransform:'uppercase', flexShrink:0, background:'none', border:'none', cursor:'pointer', padding:'4px 8px' }}>
-              Speaking (tap stop)
+              Speaking (stop)
             </button>
           )}
           {listening && <span style={{ fontSize:'0.62rem', color:'#f07a2e', fontWeight:600, letterSpacing:'0.1em', textTransform:'uppercase', flexShrink:0 }}>Listening...</span>}
           {!speaking && !listening && (
-            <div onClick={() => { unlockAudio(); setShowJobPicker(!showJobPicker); }} style={{ display:'inline-flex', alignItems:'center', gap:'5px', background:'rgba(240,122,46,0.08)', border:'1px solid rgba(240,122,46,0.2)', borderRadius:'100px', padding:'6px 14px', fontSize:'0.72rem', color:'#f07a2e', cursor:'pointer', fontWeight:500, whiteSpace:'nowrap' }}>
+            <div onClick={() => setShowJobPicker(!showJobPicker)} style={{ display:'inline-flex', alignItems:'center', gap:'5px', background:'rgba(240,122,46,0.08)', border:'1px solid rgba(240,122,46,0.2)', borderRadius:'100px', padding:'6px 14px', fontSize:'0.72rem', color:'#f07a2e', cursor:'pointer', fontWeight:500, whiteSpace:'nowrap', overflow:'hidden', textOverflow:'ellipsis', maxWidth:'160px' }}>
               {activeJob ? activeJob.customer_name : '+ Select Job'}
             </div>
           )}
-          <button className="debrief-btn" onClick={saveSession} disabled={sessionSaved || messages.length < 2}>
+          <button className="save-btn" onClick={autoSaveSession} disabled={sessionSaved || messages.length < 4}>
             {sessionSaved ? 'Saved' : 'Save'}
           </button>
         </div>
         <Link href="/dashboard" style={{ fontSize:'0.72rem', color:'#2d3f52', textDecoration:'none', flexShrink:0 }}>Back</Link>
       </div>
 
+      {/* Job Picker */}
       {showJobPicker && (
         <div style={{ background:'#111820', borderBottom:'1px solid rgba(255,255,255,0.06)', padding:'14px 16px', flexShrink:0, maxHeight:'50vh', overflowY:'auto' }}>
           <div style={{ fontSize:'0.65rem', color:'#2d3f52', marginBottom:'10px', textTransform:'uppercase', letterSpacing:'0.12em' }}>Select Job</div>
           {jobs.length === 0 ? (
-            <div style={{ fontSize:'0.82rem', color:'#3d5268' }}>No jobs. <Link href="/dashboard/jobs" style={{ color:'#f07a2e', textDecoration:'none' }}>Create one</Link></div>
+            <div style={{ fontSize:'0.82rem', color:'#3d5268' }}>No active jobs. <Link href="/dashboard/jobs" style={{ color:'#f07a2e', textDecoration:'none' }}>Create one</Link></div>
           ) : jobs.map(job => (
             <div key={job.id} className="job-item" onClick={() => selectJob(job)}>
               <div style={{ fontWeight:500, fontSize:'0.9rem' }}>{job.customer_name}</div>
@@ -278,18 +289,7 @@ function VoiceInner() {
         </div>
       )}
 
-      {pendingText && !speaking && (
-        <div onClick={() => speak(pendingText)} style={{ background:'rgba(240,122,46,0.1)', borderBottom:'1px solid rgba(240,122,46,0.2)', padding:'12px 16px', textAlign:'center', cursor:'pointer', fontSize:'0.82rem', color:'#f07a2e', flexShrink:0, fontWeight:500 }}>
-          Tap to hear Remy
-        </div>
-      )}
-
-      {!audioUnlocked && (
-        <div style={{ background:'rgba(240,122,46,0.05)', borderBottom:'1px solid rgba(240,122,46,0.1)', padding:'10px 16px', textAlign:'center', fontSize:'0.75rem', color:'#f07a2e', flexShrink:0 }}>
-          Tap anywhere to enable audio
-        </div>
-      )}
-
+      {/* Messages */}
       <div style={{ flex:1, overflowY:'auto', padding:'16px', display:'flex', flexDirection:'column', gap:'14px', WebkitOverflowScrolling:'touch' }}>
         {messages.map((m, i) => (
           <div key={i} style={{ display:'flex', justifyContent: m.role === 'user' ? 'flex-end' : 'flex-start', alignItems:'flex-end', gap:'8px' }}>
@@ -312,6 +312,7 @@ function VoiceInner() {
         <div ref={bottomRef} />
       </div>
 
+      {/* Input */}
       <div style={{ padding:'12px 16px', borderTop:'1px solid rgba(255,255,255,0.06)', background:'rgba(11,15,20,0.98)', flexShrink:0, paddingBottom:'max(16px, env(safe-area-inset-bottom))' }}>
         <div style={{ display:'flex', gap:'10px', alignItems:'center' }}>
           <button className={`mic-btn ${listening ? 'mic-on' : 'mic-idle'}`} onClick={startListening}>
@@ -322,8 +323,7 @@ function VoiceInner() {
             value={input}
             onChange={e => setInput(e.target.value)}
             onKeyDown={e => { if (e.key === 'Enter') handleSend(); }}
-            onFocus={unlockAudio}
-            placeholder={listening ? 'Listening...' : 'Type or tap mic...'}
+            placeholder={listening ? 'Listening...' : speaking ? 'Remy is speaking...' : 'Type or tap mic...'}
             disabled={listening}
           />
           <button className="send-btn" onClick={handleSend} disabled={loading || listening || !input.trim()}>Send</button>
