@@ -5,7 +5,7 @@ import Link from 'next/link';
 import { supabase } from '../../../lib/supabase';
 
 export default function JobsPage() {
-  const { user } = useUser();
+  const { user, isLoaded } = useUser();
   const [jobs, setJobs] = useState<{id: string; customer_name: string; address: string; notes: string; status: string}[]>([]);
   const [loading, setLoading] = useState(true);
   const [showNew, setShowNew] = useState(false);
@@ -15,13 +15,13 @@ export default function JobsPage() {
   const [saving, setSaving] = useState(false);
 
   useEffect(() => {
-    if (!user) return;
+    if (!isLoaded) return;
     loadJobs();
-  }, [user]);
+  }, [isLoaded]);
 
   const loadJobs = async () => {
-    const { data, error } = await supabase.from('jobs').select('*').order('created_at', { ascending: false });
-    console.log('jobs data:', data, 'error:', error);
+    setLoading(true);
+    const { data } = await supabase.from('jobs').select('*').order('created_at', { ascending: false });
     setJobs(data || []);
     setLoading(false);
   };
@@ -29,8 +29,7 @@ export default function JobsPage() {
   const createJob = async () => {
     if (!customerName.trim()) return;
     setSaving(true);
-    const { error } = await supabase.from('jobs').insert({ customer_name: customerName, address, notes, status: 'active' });
-    console.log('insert error:', error);
+    await supabase.from('jobs').insert({ customer_name: customerName, address, notes, status: 'active' });
     setCustomerName(''); setAddress(''); setNotes('');
     setShowNew(false);
     setSaving(false);
@@ -79,9 +78,9 @@ export default function JobsPage() {
                 <div>
                   <div style={{ fontWeight:500, marginBottom:'4px' }}>{job.customer_name}</div>
                   {job.address && <div style={{ fontSize:'0.82rem', color:'#7a8fa4', fontWeight:300 }}>{job.address}</div>}
-                  <div style={{ fontSize:'0.68rem', color: job.status === 'active' ? '#3daf76' : '#3d5268', marginTop:'4px', textTransform:'uppercase', letterSpacing:'0.08em' }}>{job.status}</div>
+                  <div style={{ fontSize:'0.68rem', color:'#3daf76', marginTop:'4px', textTransform:'uppercase', letterSpacing:'0.08em' }}>{job.status}</div>
                 </div>
-                <Link href={`/dashboard/voice?jobId=${job.id}&jobName=${encodeURIComponent(job.customer_name)}`} style={{ background:'rgba(240,122,46,0.1)', border:'1px solid rgba(240,122,46,0.2)', color:'#f07a2e', padding:'8px 16px', borderRadius:'6px', textDecoration:'none', fontSize:'0.78rem', fontWeight:500 }}>Talk to Remy</Link>
+                <Link href={`/dashboard/voice?jobId=${job.id}`} style={{ background:'rgba(240,122,46,0.1)', border:'1px solid rgba(240,122,46,0.2)', color:'#f07a2e', padding:'8px 16px', borderRadius:'6px', textDecoration:'none', fontSize:'0.78rem', fontWeight:500 }}>Talk to Remy</Link>
               </div>
             ))}
           </div>
