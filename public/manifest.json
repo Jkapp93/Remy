@@ -1,22 +1,16 @@
 ﻿{
-  "name": "Remy â€” AI Field Companion",
+  "name": "Remy - AI Field Companion",
   "short_name": "Remy",
   "description": "Your AI field companion for home services",
   "start_url": "/dashboard/voice",
   "display": "standalone",
   "background_color": "#0b0f14",
   "theme_color": "#0b0f14",
-  "orientation": "portrait",
   "icons": [
     {
-      "src": "/icon-192.png",
-      "sizes": "192x192",
-      "type": "image/png"
-    },
-    {
-      "src": "/icon-512.png",
-      "sizes": "512x512",
-      "type": "image/png"
+      "src": "/icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml"
     }
   ]
 }
