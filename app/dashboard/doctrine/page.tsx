@@ -91,8 +91,7 @@ export default function DoctrinePage() {
   const broadcastUpdate = async () => {
     if (!content.trim()) return;
     setSaving(true);
-    const broadcastContent = `[BROADCAST UPDATE] ${content}`;
-    await supabase.from('doctrine').insert({ content: broadcastContent, type: 'broadcast', active: true });
+    await supabase.from('doctrine').insert({ content: `[BROADCAST] ${content}`, type: 'broadcast', active: true });
     setContent('');
     setSaving(false);
     loadDoctrine();
@@ -105,15 +104,12 @@ export default function DoctrinePage() {
         * { box-sizing:border-box; margin:0; padding:0; }
         @keyframes glow { 0%,100%{box-shadow:0 0 15px rgba(240,122,46,0.3)} 50%{box-shadow:0 0 35px rgba(240,122,46,0.7)} }
         @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.4} }
-        .upload-zone { border:1.5px dashed rgba(255,255,255,0.1); border-radius:10px; padding:24px; text-align:center; cursor:pointer; transition:all 0.2s; }
-        .upload-zone:hover { border-color:rgba(240,122,46,0.4); background:rgba(240,122,46,0.04); }
+        .upload-zone { border:1.5px dashed rgba(255,255,255,0.1); border-radius:10px; padding:28px; text-align:center; cursor:pointer; transition:all 0.2s; }
+        .upload-zone:hover { border-color:rgba(240,122,46,0.4); background:rgba(240,122,46,0.03); }
         .doctrine-item { background:#111820; border:1px solid rgba(255,255,255,0.06); border-radius:10px; padding:14px 16px; display:flex; justify-content:space-between; align-items:flex-start; gap:12px; margin-bottom:8px; }
-        .doctrine-item.broadcast { border-color:rgba(61,175,118,0.2); background:rgba(61,175,118,0.04); }
-        .doctrine-item.pdf { border-color:rgba(74,159,212,0.2); background:rgba(74,159,212,0.04); }
+        .doctrine-broadcast { border-color:rgba(61,175,118,0.2); background:rgba(61,175,118,0.03); }
+        .doctrine-pdf { border-color:rgba(74,159,212,0.2); background:rgba(74,159,212,0.03); }
         .type-badge { font-size:0.58rem; font-weight:600; letter-spacing:0.1em; text-transform:uppercase; padding:2px 8px; border-radius:4px; margin-bottom:6px; display:inline-block; }
-        .badge-text { background:rgba(240,122,46,0.1); color:#f07a2e; }
-        .badge-broadcast { background:rgba(61,175,118,0.1); color:#3daf76; }
-        .badge-pdf { background:rgba(74,159,212,0.1); color:#4a9fd4; }
       `}</style>
 
       <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', padding:'16px 24px', borderBottom:'1px solid rgba(255,255,255,0.07)', background:'rgba(11,15,20,0.95)', position:'sticky', top:0, zIndex:100 }}>
@@ -125,7 +121,7 @@ export default function DoctrinePage() {
         <h1 style={{ fontFamily:"'Syne', sans-serif", fontSize:'1.8rem', fontWeight:800, marginBottom:'6px' }}>Doctrine</h1>
         <p style={{ color:'#7a8fa4', fontSize:'0.88rem', fontWeight:300, marginBottom:'32px' }}>Inject company knowledge into every rep agent. Speak it, type it, or upload a file.</p>
 
-        {/* Voice Input */}
+        {/* Input */}
         <div style={{ background:'#111820', border:'1px solid rgba(255,255,255,0.07)', borderRadius:'12px', padding:'20px', marginBottom:'16px' }}>
           <div style={{ fontSize:'0.68rem', fontWeight:500, letterSpacing:'0.12em', textTransform:'uppercase', color:'#f07a2e', marginBottom:'14px' }}>Voice or Text Input</div>
           <textarea
@@ -138,11 +134,9 @@ export default function DoctrinePage() {
           <div style={{ display:'flex', gap:'8px', flexWrap:'wrap' }}>
             <button
               onClick={startListening}
-              style={{ padding:'9px 18px', background: listening ? '#f07a2e' : 'rgba(240,122,46,0.1)', border:'1px solid rgba(240,122,46,0.3)', borderRadius:'8px', color: listening ? '#fff' : '#f07a2e', fontFamily:"'DM Sans',sans-serif", fontSize:'0.82rem', fontWeight:500, cursor:'pointer', display:'flex', alignItems:'center', gap:'6px', animation: listening ? 'glow 1s ease-in-out infinite' : 'none' }}
+              style={{ padding:'9px 18px', background: listening ? '#f07a2e' : 'rgba(240,122,46,0.1)', border:'1px solid rgba(240,122,46,0.3)', borderRadius:'8px', color: listening ? '#fff' : '#f07a2e', fontFamily:"'DM Sans',sans-serif", fontSize:'0.82rem', fontWeight:500, cursor:'pointer', animation: listening ? 'glow 1s ease-in-out infinite' : 'none' }}
             >
-              {listening ? (
-                <><span style={{ width:'7px', height:'7px', borderRadius:'50%', background:'#fff', display:'inline-block', animation:'pulse 1s ease-in-out infinite' }}></span>Stop Recording</>
-              ) : 'Speak Doctrine'}
+              {listening ? 'Stop Recording' : 'Speak Doctrine'}
             </button>
             <button onClick={save} disabled={saving || !content.trim()} style={{ padding:'9px 18px', background:'#f07a2e', border:'none', borderRadius:'8px', color:'#fff', fontFamily:"'DM Sans',sans-serif", fontSize:'0.82rem', fontWeight:500, cursor:'pointer', opacity: saving || !content.trim() ? 0.5 : 1 }}>
               {saving ? 'Injecting...' : 'Inject Doctrine'}
@@ -157,9 +151,9 @@ export default function DoctrinePage() {
         <div style={{ background:'#111820', border:'1px solid rgba(255,255,255,0.07)', borderRadius:'12px', padding:'20px', marginBottom:'28px' }}>
           <div style={{ fontSize:'0.68rem', fontWeight:500, letterSpacing:'0.12em', textTransform:'uppercase', color:'#4a9fd4', marginBottom:'14px' }}>Upload File to Brain</div>
           <div className="upload-zone" onClick={() => fileInputRef.current?.click()}>
-            <div style={{ fontSize:'1.8rem', marginBottom:'8px', opacity:0.5 }}>ðŸ“„</div>
+            <div style={{ width:'40px', height:'40px', borderRadius:'8px', background:'rgba(74,159,212,0.1)', border:'1px solid rgba(74,159,212,0.2)', display:'flex', alignItems:'center', justifyContent:'center', margin:'0 auto 12px', fontSize:'1.1rem', color:'#4a9fd4' }}>PDF</div>
             <div style={{ fontSize:'0.88rem', color:'#7a8fa4', marginBottom:'4px' }}>{uploading ? uploadStatus : 'Drop a PDF, TXT, or DOC file'}</div>
-            <div style={{ fontSize:'0.72rem', color:'#3d5268', fontFamily:"'DM Sans',monospace" }}>Product guides, pricing sheets, scripts, training docs</div>
+            <div style={{ fontSize:'0.72rem', color:'#3d5268' }}>Product guides, pricing sheets, scripts, training docs</div>
           </div>
           {uploadStatus && !uploading && (
             <div style={{ marginTop:'10px', fontSize:'0.8rem', color:'#3daf76', fontWeight:500 }}>{uploadStatus}</div>
@@ -178,15 +172,20 @@ export default function DoctrinePage() {
           <div style={{ color:'#3d5268', textAlign:'center', padding:'32px', fontSize:'0.85rem' }}>No doctrine yet. Add your first entry above.</div>
         ) : (
           items.map(item => (
-            <div key={item.id} className={`doctrine-item ${item.type === 'broadcast' ? 'broadcast' : item.type === 'pdf' ? 'pdf' : ''}`}>
+            <div key={item.id} className={`doctrine-item ${item.type === 'broadcast' ? 'doctrine-broadcast' : item.type === 'pdf' ? 'doctrine-pdf' : ''}`}>
               <div style={{ flex:1 }}>
-                <div className={`type-badge ${item.type === 'broadcast' ? 'badge-broadcast' : item.type === 'pdf' ? 'badge-pdf' : 'badge-text'}`}>
+                <span className="type-badge" style={{
+                  background: item.type === 'broadcast' ? 'rgba(61,175,118,0.1)' : item.type === 'pdf' ? 'rgba(74,159,212,0.1)' : 'rgba(240,122,46,0.1)',
+                  color: item.type === 'broadcast' ? '#3daf76' : item.type === 'pdf' ? '#4a9fd4' : '#f07a2e'
+                }}>
                   {item.type === 'broadcast' ? 'Broadcast' : item.type === 'pdf' ? 'PDF' : 'Text'}
-                </div>
+                </span>
                 <div style={{ fontSize:'0.85rem', color:'#7a8fa4', lineHeight:1.6, fontWeight:300 }}>{item.content}</div>
-                <div style={{ fontSize:'0.62rem', color:'#2d3f52', marginTop:'6px' }}>{new Date(item.created_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })}</div>
+                <div style={{ fontSize:'0.62rem', color:'#2d3f52', marginTop:'6px' }}>
+                  {new Date(item.created_at).toLocaleDateString('en-US', { month:'short', day:'numeric', hour:'numeric', minute:'2-digit' })}
+                </div>
               </div>
-              <button onClick={() => remove(item.id)} style={{ background:'transparent', border:'none', color:'#2d3f52', cursor:'pointer', fontSize:'0.9rem', flexShrink:0, padding:'2px 4px' }}>âœ•</button>
+              <button onClick={() => remove(item.id)} style={{ background:'transparent', border:'none', color:'#2d3f52', cursor:'pointer', fontSize:'1rem', flexShrink:0, padding:'2px 4px' }}>x</button>
             </div>
           ))
         )}
