@@ -17,6 +17,7 @@ export default function JobsPage() {
   const [saving, setSaving] = useState(false);
   const [filter, setFilter] = useState<'active' | 'all'>('active');
   const [confirmDelete, setConfirmDelete] = useState<string | null>(null);
+  const [expandedJob, setExpandedJob] = useState<string | null>(null);
   const [mapLoaded, setMapLoaded] = useState(false);
   const [showMap, setShowMap] = useState(false);
   const mapRef = useRef<HTMLDivElement>(null);
@@ -102,7 +103,10 @@ export default function JobsPage() {
     loadJobs();
   };
 
-  const deleteJob = async (id: string) => {
+  const reopenJob = async (id: string) => {
+    await supabase.from('jobs').update({ status: 'active' }).eq('id', id);
+    loadJobs();
+  };
     await supabase.from('jobs').delete().eq('id', id);
     setConfirmDelete(null);
     loadJobs();
@@ -198,23 +202,31 @@ export default function JobsPage() {
           <div style={{ display:'flex', flexDirection:'column', gap:'10px' }}>
             {jobs.map(job => (
               <div key={job.id} style={{ background:'#111820', border:'1px solid rgba(255,255,255,0.08)', borderRadius:'12px', padding:'16px 20px' }}>
-                <div style={{ display:'flex', justifyContent:'space-between', alignItems:'flex-start', marginBottom: job.notes ? '10px' : '0' }}>
+                <div style={{ display:'flex', justifyContent:'space-between', alignItems:'flex-start', cursor:'pointer' }} onClick={() => setExpandedJob(expandedJob === job.id ? null : job.id)}>
                   <div>
                     <div style={{ fontWeight:500, marginBottom:'3px' }}>{job.customer_name}</div>
                     {job.address && <div style={{ fontSize:'0.82rem', color:'#7a8fa4', fontWeight:300 }}>{job.address}</div>}
                     <div style={{ fontSize:'0.65rem', color: job.status === 'active' ? '#3daf76' : '#3d5268', marginTop:'4px', textTransform:'uppercase', letterSpacing:'0.08em' }}>{job.status}</div>
                   </div>
-                  <div style={{ display:'flex', gap:'6px', alignItems:'center', flexWrap:'wrap', justifyContent:'flex-end' }}>
-                    {job.status === 'active' && (
-                      <Link href={`/dashboard/voice?jobId=${job.id}`} style={{ background:'rgba(240,122,46,0.1)', border:'1px solid rgba(240,122,46,0.2)', color:'#f07a2e', padding:'7px 14px', borderRadius:'6px', textDecoration:'none', fontSize:'0.75rem', fontWeight:500, whiteSpace:'nowrap' }}>Talk to Remy</Link>
-                    )}
-                    {job.status === 'active' && (
-                      <button onClick={() => closeJob(job.id)} style={{ background:'transparent', border:'1px solid rgba(61,175,118,0.2)', color:'#3daf76', padding:'7px 12px', borderRadius:'6px', fontSize:'0.72rem', cursor:'pointer', fontFamily:"'DM Sans',sans-serif" }}>Close</button>
-                    )}
-                    <button onClick={() => setConfirmDelete(job.id)} style={{ background:'transparent', border:'1px solid rgba(200,74,74,0.2)', color:'#c84a4a', padding:'7px 12px', borderRadius:'6px', fontSize:'0.72rem', cursor:'pointer', fontFamily:"'DM Sans',sans-serif" }}>Delete</button>
-                  </div>
+                  <div style={{ fontSize:'0.72rem', color:'#3d5268' }}>{expandedJob === job.id ? 'â–²' : 'â–¼'}</div>
                 </div>
-                {job.notes && <div style={{ fontSize:'0.78rem', color:'#3d5268', borderTop:'1px solid rgba(255,255,255,0.04)', paddingTop:'8px' }}>{job.notes}</div>}
+                {expandedJob === job.id && (
+                  <div style={{ marginTop:'14px', borderTop:'1px solid rgba(255,255,255,0.05)', paddingTop:'14px' }}>
+                    {job.notes && <div style={{ fontSize:'0.82rem', color:'#7a8fa4', fontWeight:300, marginBottom:'14px', lineHeight:1.6 }}>{job.notes}</div>}
+                    <div style={{ display:'flex', gap:'6px', flexWrap:'wrap' }}>
+                      {job.status === 'active' && (
+                        <Link href={`/dashboard/voice?jobId=${job.id}`} style={{ background:'rgba(240,122,46,0.1)', border:'1px solid rgba(240,122,46,0.2)', color:'#f07a2e', padding:'7px 14px', borderRadius:'6px', textDecoration:'none', fontSize:'0.75rem', fontWeight:500 }}>Talk to Remy</Link>
+                      )}
+                      {job.status === 'active' && (
+                        <button onClick={() => closeJob(job.id)} style={{ background:'transparent', border:'1px solid rgba(61,175,118,0.2)', color:'#3daf76', padding:'7px 12px', borderRadius:'6px', fontSize:'0.72rem', cursor:'pointer', fontFamily:"'DM Sans',sans-serif" }}>Close</button>
+                      )}
+                      {job.status === 'closed' && (
+                        <button onClick={() => reopenJob(job.id)} style={{ background:'transparent', border:'1px solid rgba(240,122,46,0.2)', color:'#f07a2e', padding:'7px 12px', borderRadius:'6px', fontSize:'0.72rem', cursor:'pointer', fontFamily:"'DM Sans',sans-serif" }}>Reopen</button>
+                      )}
+                      <button onClick={() => setConfirmDelete(job.id)} style={{ background:'transparent', border:'1px solid rgba(200,74,74,0.2)', color:'#c84a4a', padding:'7px 12px', borderRadius:'6px', fontSize:'0.72rem', cursor:'pointer', fontFamily:"'DM Sans',sans-serif" }}>Delete</button>
+                    </div>
+                  </div>
+                )}
               </div>
             ))}
           </div>
