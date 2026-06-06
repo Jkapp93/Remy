@@ -6,13 +6,26 @@ const supabase = createClient(
   process.env.SUPABASE_SERVICE_ROLE_KEY!
 );
 
-export async function GET() {
+export async function GET(req: NextRequest) {
   try {
-    const { data } = await supabase
-      .from('doctrine')
-      .select('content')
-      .eq('active', true);
+    const { searchParams } = new URL(req.url);
+    const companyId = searchParams.get('companyId');
+    const clerkId = searchParams.get('clerkId');
 
+    let resolvedCompanyId = companyId;
+    if (!resolvedCompanyId && clerkId) {
+      const { data: profile } = await supabase
+        .from('profiles')
+        .select('company_id')
+        .eq('clerk_id', clerkId)
+        .single();
+      resolvedCompanyId = profile?.company_id || null;
+    }
+
+    let query = supabase.from('doctrine').select('content').eq('active', true);
+    if (resolvedCompanyId) query = query.eq('company_id', resolvedCompanyId);
+
+    const { data } = await query;
     const doctrine = data ? data.map((d: {content: string}) => d.content).join('\n') : '';
     return NextResponse.json({ doctrine });
   } catch (error) {

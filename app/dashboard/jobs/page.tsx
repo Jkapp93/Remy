@@ -3,6 +3,7 @@ import { useState, useEffect, useRef } from 'react';
 import { useUser } from '@clerk/nextjs';
 import Link from 'next/link';
 import { supabase } from '../../../lib/supabase';
+import { useProfile } from '../../../lib/useProfile';
 
 const JOB_TYPES = [
   { value: 'roofing', label: 'Roofing', color: '#f07a2e' },
@@ -19,6 +20,7 @@ const getJobType = (type: string) => JOB_TYPES.find(t => t.value === type) || JO
 
 export default function JobsPage() {
   const { isLoaded } = useUser();
+  const { profile } = useProfile();
   const [jobs, setJobs] = useState<{id: string; customer_name: string; address: string; notes: string; status: string; job_type: string}[]>([]);
   const [loading, setLoading] = useState(true);
   const [showNew, setShowNew] = useState(false);
@@ -44,10 +46,10 @@ export default function JobsPage() {
   const mapInstanceRef = useRef<any>(null);
   const markersRef = useRef<any[]>([]);
 
-  useEffect(() => { if (!isLoaded) return; loadJobs(); }, [isLoaded]);
+  useEffect(() => { if (!isLoaded) return; loadJobs(); }, [isLoaded, profile]);
   useEffect(() => { if (isLoaded) loadJobs(); }, [filter]);
   useEffect(() => { loadGoogleMaps(); }, []);
-  useEffect(() => { if (showMap) { if (mapInstanceRef.current) plotJobs(); else initMap(); } }, [showMap, jobs]);
+  useEffect(() => { if (showMap && mapInstanceRef.current) plotJobs(); }, [jobs]);
   useEffect(() => {
     if (showNew && (window as any).google?.maps?.places && addressInputRef.current) {
       initAutocomplete(addressInputRef.current, setAddress);
@@ -165,7 +167,8 @@ export default function JobsPage() {
 
   const loadJobs = async () => {
     setLoading(true);
-    const query = supabase.from('jobs').select('*').order('created_at', { ascending: false });
+    let query = supabase.from('jobs').select('*').order('created_at', { ascending: false });
+    if (profile?.company_id) query = query.eq('company_id', profile.company_id);
     const { data } = filter === 'active' ? await query.eq('status', 'active') : await query;
     setJobs(data || []);
     setLoading(false);
@@ -174,7 +177,14 @@ export default function JobsPage() {
   const createJob = async () => {
     if (!customerName.trim()) return;
     setSaving(true);
-    await supabase.from('jobs').insert({ customer_name: customerName, address, notes, status: 'active', job_type: jobType });
+    await supabase.from('jobs').insert({ 
+      customer_name: customerName, 
+      address, 
+      notes, 
+      status: 'active', 
+      job_type: jobType,
+      company_id: profile?.company_id || null,
+    });
     setCustomerName(''); setAddress(''); setNotes(''); setJobType('roofing');
     setShowNew(false); setSaving(false); loadJobs();
   };

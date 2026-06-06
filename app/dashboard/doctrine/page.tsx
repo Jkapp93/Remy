@@ -2,8 +2,10 @@
 import { useState, useEffect, useRef } from 'react';
 import Link from 'next/link';
 import { supabase } from '../../../lib/supabase';
+import { useProfile } from '../../../lib/useProfile';
 
 export default function DoctrinePage() {
+  const { profile } = useProfile();
   const [items, setItems] = useState<{id: string; content: string; type: string; created_at: string}[]>([]);
   const [content, setContent] = useState('');
   const [saving, setSaving] = useState(false);
@@ -18,14 +20,18 @@ export default function DoctrinePage() {
 
   const loadDoctrine = async () => {
     const { data } = await supabase.from('doctrine').select('*').eq('active', true).order('created_at', { ascending: false });
-    setItems(data || []);
+    // Filter by company if profile loaded
+    const filtered = profile?.company_id 
+      ? (data || []).filter((d: any) => !d.company_id || d.company_id === profile.company_id)
+      : (data || []);
+    setItems(filtered);
     setLoading(false);
   };
 
   const save = async () => {
     if (!content.trim()) return;
     setSaving(true);
-    await supabase.from('doctrine').insert({ content, type: 'text', active: true });
+    await supabase.from('doctrine').insert({ content, type: 'text', active: true, company_id: profile?.company_id || null });
     setContent('');
     setSaving(false);
     loadDoctrine();
@@ -74,7 +80,7 @@ export default function DoctrinePage() {
         setUploadStatus('Injecting into Remy brain...');
         const chunks = data.content.match(/[\s\S]{1,800}/g) || [data.content];
         for (const chunk of chunks) {
-          await supabase.from('doctrine').insert({ content: chunk.trim(), type: 'pdf', active: true });
+          await supabase.from('doctrine').insert({ content: chunk.trim(), type: 'pdf', active: true, company_id: profile?.company_id || null });
         }
         setUploadStatus(`Done. ${chunks.length} chunk${chunks.length > 1 ? 's' : ''} injected.`);
         loadDoctrine();
@@ -91,7 +97,7 @@ export default function DoctrinePage() {
   const broadcastUpdate = async () => {
     if (!content.trim()) return;
     setSaving(true);
-    await supabase.from('doctrine').insert({ content: `[BROADCAST] ${content}`, type: 'broadcast', active: true });
+    await supabase.from('doctrine').insert({ content: `[BROADCAST] ${content}`, type: 'broadcast', active: true, company_id: profile?.company_id || null });
     setContent('');
     setSaving(false);
     loadDoctrine();
