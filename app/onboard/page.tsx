@@ -87,7 +87,7 @@ export default function OnboardPage() {
           <div style={{ fontFamily:"'Syne',sans-serif", fontSize:'2rem', fontWeight:800, marginBottom:'8px' }}>
             Remy<span style={{ color:'#f07a2e' }}>.</span>
           </div>
-          <div style={{ color:'#7a8fa4', fontSize:'0.9rem', fontWeight:300 }}>Let's get you set up</div>
+          <div style={{ color:'#7a8fa4', fontSize:'0.9rem', fontWeight:300 }}>Lets get you set up</div>
         </div>
 
         {step === 'company' && (
