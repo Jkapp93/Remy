@@ -49,8 +49,7 @@ export default function JobsPage() {
   useEffect(() => { if (!isLoaded) return; loadJobs(); }, [isLoaded, profile]);
   useEffect(() => { if (isLoaded) loadJobs(); }, [filter]);
   useEffect(() => { loadGoogleMaps(); }, []);
-  useEffect(() => { if (showMap) { if (mapInstanceRef.current) plotJobs(); else { const checkAndInit = setInterval(() => { if ((window as any).google?.maps) { clearInterval(checkAndInit); initMap(); } }, 100); } } }, [showMap]);
-  
+  useEffect(() => { if (showMap && mapInstanceRef.current) plotJobs(); }, [jobs]);
   useEffect(() => {
     if (showNew && (window as any).google?.maps?.places && addressInputRef.current) {
       initAutocomplete(addressInputRef.current, setAddress);
@@ -66,12 +65,23 @@ export default function JobsPage() {
   const initAutocomplete = (input: HTMLInputElement, setter: (v: string) => void) => {
     const google = (window as any).google;
     const ac = new google.maps.places.Autocomplete(input, {
-      types: ['address'],
+      types: ['establishment', 'geocode'],
       componentRestrictions: { country: 'us' },
     });
+    // Bias to user's current location
+    if (navigator.geolocation) {
+      navigator.geolocation.getCurrentPosition((pos) => {
+        const circle = new google.maps.Circle({
+          center: { lat: pos.coords.latitude, lng: pos.coords.longitude },
+          radius: 50000,
+        });
+        ac.setBounds(circle.getBounds());
+      });
+    }
     ac.addListener('place_changed', () => {
       const place = ac.getPlace();
       if (place.formatted_address) setter(place.formatted_address);
+      else if (place.name) setter(place.name);
     });
   };
   useEffect(() => { if (showMap && mapInstanceRef.current) plotJobs(); }, [jobs, showMap]);
