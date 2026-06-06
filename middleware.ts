@@ -11,6 +11,8 @@ const isPublicRoute = createRouteMatcher([
   '/api/doctrine-list(.*)',
   '/api/transcribe(.*)',
   '/api/invite(.*)',
+  '/api/onboard(.*)',
+  '/api/onboard-check(.*)',
 ]);
 export default clerkMiddleware((auth, request) => {
   if (!isPublicRoute(request)) {
