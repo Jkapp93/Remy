@@ -1,5 +1,5 @@
 ﻿'use client';
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useUser } from '@clerk/nextjs';
 import Link from 'next/link';
 import { supabase } from '../../../lib/supabase';
@@ -15,9 +15,97 @@ export default function JobsPage() {
   const [saving, setSaving] = useState(false);
   const [filter, setFilter] = useState<'active' | 'all'>('active');
   const [confirmDelete, setConfirmDelete] = useState<string | null>(null);
+  const [showMap, setShowMap] = useState(false);
+  const mapRef = useRef<HTMLDivElement>(null);
+  const mapInstanceRef = useRef<any>(null);
+  const markersRef = useRef<any[]>([]);
 
   useEffect(() => { if (!isLoaded) return; loadJobs(); }, [isLoaded]);
   useEffect(() => { if (isLoaded) loadJobs(); }, [filter]);
+
+  useEffect(() => {
+    if (showMap) loadGoogleMaps();
+  }, [showMap]);
+
+  useEffect(() => {
+    if (showMap && mapInstanceRef.current && jobs.length > 0) plotJobs();
+  }, [jobs, showMap]);
+
+  const loadGoogleMaps = () => {
+    const key = process.env.NEXT_PUBLIC_GOOGLE_MAPS_KEY;
+    if (!key) return;
+    if ((window as any).google?.maps) { initMap(); return; }
+    const existing = document.querySelector('script[data-maps]');
+    if (existing) { existing.addEventListener('load', initMap); return; }
+    const script = document.createElement('script');
+    script.src = `https://maps.googleapis.com/maps/api/js?key=${key}&libraries=geocoding`;
+    script.setAttribute('data-maps', 'true');
+    script.onload = initMap;
+    document.head.appendChild(script);
+  };
+
+  const initMap = () => {
+    if (!mapRef.current) return;
+    const google = (window as any).google;
+    const map = new google.maps.Map(mapRef.current, {
+      zoom: 9,
+      center: { lat: 26.5, lng: -81.8 },
+      styles: [
+        { elementType: 'geometry', stylers: [{ color: '#0b0f14' }] },
+        { elementType: 'labels.text.stroke', stylers: [{ color: '#0b0f14' }] },
+        { elementType: 'labels.text.fill', stylers: [{ color: '#7a8fa4' }] },
+        { featureType: 'administrative', elementType: 'geometry.stroke', stylers: [{ color: '#1a2535' }] },
+        { featureType: 'road', elementType: 'geometry', stylers: [{ color: '#111820' }] },
+        { featureType: 'road', elementType: 'geometry.stroke', stylers: [{ color: '#1a2535' }] },
+        { featureType: 'water', elementType: 'geometry', stylers: [{ color: '#060a0f' }] },
+        { featureType: 'poi', stylers: [{ visibility: 'off' }] },
+      ],
+    });
+    mapInstanceRef.current = map;
+    plotJobs();
+  };
+
+  const plotJobs = async () => {
+    if (!mapInstanceRef.current) return;
+    const google = (window as any).google;
+    const geocoder = new google.maps.Geocoder();
+    markersRef.current.forEach(m => m.setMap(null));
+    markersRef.current = [];
+    const bounds = new google.maps.LatLngBounds();
+    let hasPoints = false;
+    for (const job of jobs) {
+      if (!job.address) continue;
+      await new Promise<void>(resolve => {
+        geocoder.geocode({ address: job.address }, (results: any, status: any) => {
+          if (status === 'OK' && results[0]) {
+            const pos = results[0].geometry.location;
+            const marker = new google.maps.Marker({
+              map: mapInstanceRef.current,
+              position: pos,
+              title: job.customer_name,
+              icon: {
+                path: google.maps.SymbolPath.CIRCLE,
+                scale: 9,
+                fillColor: job.status === 'active' ? '#f07a2e' : '#3d5268',
+                fillOpacity: 1,
+                strokeColor: '#fff',
+                strokeWeight: 2,
+              },
+            });
+            const info = new google.maps.InfoWindow({
+              content: `<div style="color:#111;padding:6px;font-family:sans-serif"><strong>${job.customer_name}</strong><br/><span style="font-size:12px;color:#555">${job.address}</span><br/><span style="font-size:11px;color:${job.status === 'active' ? '#3daf76' : '#999'};text-transform:uppercase;font-weight:600">${job.status}</span></div>`,
+            });
+            marker.addListener('click', () => info.open(mapInstanceRef.current, marker));
+            markersRef.current.push(marker);
+            bounds.extend(pos);
+            hasPoints = true;
+          }
+          resolve();
+        });
+      });
+    }
+    if (hasPoints) mapInstanceRef.current.fitBounds(bounds);
+  };
 
   const loadJobs = async () => {
     setLoading(true);
@@ -86,7 +174,12 @@ export default function JobsPage() {
             <h1 style={{ fontFamily:"'Syne', sans-serif", fontSize:'1.8rem', fontWeight:800, marginBottom:'4px' }}>Jobs</h1>
             <p style={{ color:'#7a8fa4', fontSize:'0.88rem', fontWeight:300 }}>Your field jobs</p>
           </div>
-          <button onClick={() => setShowNew(true)} style={{ background:'#f07a2e', color:'#fff', border:'none', padding:'10px 20px', borderRadius:'8px', fontFamily:"'DM Sans', sans-serif", fontSize:'0.85rem', fontWeight:500, cursor:'pointer' }}>+ New Job</button>
+          <div style={{ display:'flex', gap:'8px' }}>
+            <button onClick={() => setShowMap(!showMap)} style={{ background: showMap ? 'rgba(74,159,212,0.1)' : 'transparent', border: showMap ? '1px solid rgba(74,159,212,0.3)' : '1px solid rgba(255,255,255,0.08)', borderRadius:'8px', padding:'9px 16px', color: showMap ? '#4a9fd4' : '#7a8fa4', fontFamily:"'DM Sans',sans-serif", fontSize:'0.82rem', cursor:'pointer', fontWeight:500 }}>
+              {showMap ? 'List View' : 'Map View'}
+            </button>
+            <button onClick={() => setShowNew(true)} style={{ background:'#f07a2e', color:'#fff', border:'none', padding:'10px 20px', borderRadius:'8px', fontFamily:"'DM Sans', sans-serif", fontSize:'0.85rem', fontWeight:500, cursor:'pointer' }}>+ New Job</button>
+          </div>
         </div>
 
         <div style={{ display:'flex', gap:'8px', marginBottom:'20px' }}>
@@ -97,11 +190,17 @@ export default function JobsPage() {
           ))}
         </div>
 
+        {showMap && (
+          <div style={{ marginBottom:'20px', borderRadius:'12px', overflow:'hidden', border:'1px solid rgba(255,255,255,0.08)', height:'320px', background:'#111820' }}>
+            <div ref={mapRef} style={{ width:'100%', height:'100%' }} />
+          </div>
+        )}
+
         {showNew && (
           <div style={{ background:'#111820', border:'1px solid rgba(255,255,255,0.08)', borderRadius:'12px', padding:'24px', marginBottom:'20px' }}>
             <div style={{ fontFamily:"'Syne', sans-serif", fontWeight:700, marginBottom:'16px' }}>New Job</div>
             <input value={customerName} onChange={e => setCustomerName(e.target.value)} placeholder="Customer name *" style={{ width:'100%', background:'#0b0f14', border:'1px solid rgba(255,255,255,0.08)', borderRadius:'8px', padding:'10px 14px', color:'#e8edf2', fontFamily:"'DM Sans', sans-serif", fontSize:'0.9rem', outline:'none', marginBottom:'10px' }} />
-            <input value={address} onChange={e => setAddress(e.target.value)} placeholder="Address (used for GPS auto-brief)" style={{ width:'100%', background:'#0b0f14', border:'1px solid rgba(255,255,255,0.08)', borderRadius:'8px', padding:'10px 14px', color:'#e8edf2', fontFamily:"'DM Sans', sans-serif", fontSize:'0.9rem', outline:'none', marginBottom:'10px' }} />
+            <input value={address} onChange={e => setAddress(e.target.value)} placeholder="Address (used for GPS auto-brief and map)" style={{ width:'100%', background:'#0b0f14', border:'1px solid rgba(255,255,255,0.08)', borderRadius:'8px', padding:'10px 14px', color:'#e8edf2', fontFamily:"'DM Sans', sans-serif", fontSize:'0.9rem', outline:'none', marginBottom:'10px' }} />
             <textarea value={notes} onChange={e => setNotes(e.target.value)} placeholder="Notes about this job" rows={3} style={{ width:'100%', background:'#0b0f14', border:'1px solid rgba(255,255,255,0.08)', borderRadius:'8px', padding:'10px 14px', color:'#e8edf2', fontFamily:"'DM Sans', sans-serif", fontSize:'0.9rem', outline:'none', resize:'vertical', marginBottom:'14px' }} />
             <div style={{ display:'flex', gap:'10px' }}>
               <button onClick={createJob} disabled={saving} style={{ background:'#f07a2e', color:'#fff', border:'none', padding:'10px 20px', borderRadius:'8px', fontFamily:"'DM Sans', sans-serif", fontSize:'0.85rem', fontWeight:500, cursor:'pointer' }}>{saving ? 'Saving...' : 'Create Job'}</button>
