@@ -24,7 +24,7 @@ const PLANS = [
   {
     id: 'command',
     name: 'Command',
-    price: 800,
+    price: 799,
     description: 'For small teams of up to 5 reps',
     features: [
       'Up to 5 users',
