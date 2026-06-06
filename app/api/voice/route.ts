@@ -1,9 +1,19 @@
 ﻿import { NextRequest, NextResponse } from 'next/server';
 
+const VOICES = {
+  'default': 'f786b574-daa5-4673-aa0c-cbe3e8534c02',
+  'voice1': 'ef191366-f52f-447a-a398-ed8c0f2943a1',
+  'voice2': '30894953-bcce-41fe-892c-15ce19c843ff',
+  'voice3': '692846ad-1a6b-49b8-bfc5-86421fd41a19',
+  'voice4': 'ed9ccfa4-8fa1-40f8-bfb2-cb7d67d2f9cd',
+};
+
 export async function POST(req: NextRequest) {
   try {
-    const { text } = await req.json();
+    const { text, voiceId } = await req.json();
     if (!text) return NextResponse.json({ error: 'No text' }, { status: 400 });
+
+    const selectedVoice = voiceId || VOICES.default;
 
     const response = await fetch('https://api.cartesia.ai/tts/bytes', {
       method: 'POST',
@@ -15,15 +25,8 @@ export async function POST(req: NextRequest) {
       body: JSON.stringify({
         transcript: text,
         model_id: 'sonic-2',
-        voice: {
-          mode: 'id',
-          id: 'f786b574-daa5-4673-aa0c-cbe3e8534c02',
-        },
-        output_format: {
-          container: 'mp3',
-          encoding: 'mp3',
-          sample_rate: 44100,
-        },
+        voice: { mode: 'id', id: selectedVoice },
+        output_format: { container: 'mp3', encoding: 'mp3', sample_rate: 44100 },
         stream: true,
       }),
     });
@@ -34,7 +37,6 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'TTS failed', details: err }, { status: 500 });
     }
 
-    // Stream the audio directly back to the client
     return new NextResponse(response.body, {
       headers: {
         'Content-Type': 'audio/mpeg',
