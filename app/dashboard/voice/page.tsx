@@ -127,7 +127,7 @@ function VoiceInner() {
       }
     }
 
-    // Morning brief if jobs exist
+    // Morning brief only if no jobId in URL
     if (allJobs.length > 0) {
       const jobList = allJobs.slice(0, 5).map((j: {customer_name: string; address: string}) => `${j.customer_name}${j.address ? ` at ${j.address}` : ''}`).join(', ');
       const morningPrompt = `Give me a quick morning brief. I have ${allJobs.length} active job${allJobs.length > 1 ? 's' : ''} today: ${jobList}. What should I know to start the day strong?`;
