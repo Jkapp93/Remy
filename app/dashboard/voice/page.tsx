@@ -165,10 +165,11 @@ function VoiceInner() {
 
   const speak = async (text: string) => {
     try {
+      const savedVoice = typeof window !== 'undefined' ? localStorage.getItem('remy_voice') || undefined : undefined;
       const res = await fetch('/api/voice', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ text }),
+        body: JSON.stringify({ text, voiceId: savedVoice }),
       });
       if (!res.ok) return;
       const blob = await res.blob();
