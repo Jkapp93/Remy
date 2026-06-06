@@ -1,5 +1,5 @@
 ﻿'use client';
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useUser } from '@clerk/nextjs';
 import { useRouter } from 'next/navigation';
 
@@ -11,6 +11,19 @@ export default function OnboardPage() {
   const [inviteCode, setInviteCode] = useState('');
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
+  const [checking, setChecking] = useState(true);
+
+  useEffect(() => {
+    if (!isLoaded || !user) return;
+    fetch(`/api/onboard-check?clerkId=${user.id}`)
+      .then(r => r.json())
+      .then(data => { if (data.onboarded) router.push(data.redirect); else setChecking(false); })
+      .catch(() => setChecking(false));
+  }, [isLoaded, user]);
+
+  if (!isLoaded || checking) return (
+    <div style={{ background:'#0b0f14', height:'100vh', display:'flex', alignItems:'center', justifyContent:'center', color:'#3d5268', fontFamily:'monospace' }}>Loading...</div>
+  );
 
   const submit = async () => {
     if (!user) return;
@@ -36,10 +49,6 @@ export default function OnboardPage() {
       setSaving(false);
     }
   };
-
-  if (!isLoaded) return (
-    <div style={{ background:'#0b0f14', height:'100vh', display:'flex', alignItems:'center', justifyContent:'center', color:'#3d5268', fontFamily:'monospace' }}>Loading...</div>
-  );
 
   return (
     <div style={{ background:'#0b0f14', minHeight:'100vh', color:'#e8edf2', fontFamily:"'DM Sans', sans-serif", display:'flex', alignItems:'center', justifyContent:'center', padding:'24px' }}>
