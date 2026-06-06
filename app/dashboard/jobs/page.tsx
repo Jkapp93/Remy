@@ -5,14 +5,14 @@ import Link from 'next/link';
 import { supabase } from '../../../lib/supabase';
 
 const JOB_TYPES = [
-  { value: 'roofing', label: 'Roofing', color: '#f07a2e', emoji: 'ðŸ ' },
-  { value: 'fencing', label: 'Fencing', color: '#4a9fd4', emoji: 'ðŸ”©' },
-  { value: 'hvac', label: 'HVAC / AC', color: '#3daf76', emoji: 'â„ï¸' },
-  { value: 'painting', label: 'Painting', color: '#9b59b6', emoji: 'ðŸŽ¨' },
-  { value: 'plumbing', label: 'Plumbing', color: '#e74c3c', emoji: 'ðŸ”§' },
-  { value: 'solar', label: 'Solar', color: '#f1c40f', emoji: 'â˜€ï¸' },
-  { value: 'restoration', label: 'Restoration', color: '#e67e22', emoji: 'ðŸ”¨' },
-  { value: 'other', label: 'Other', color: '#7a8fa4', emoji: 'ðŸ“‹' },
+  { value: 'roofing', label: 'Roofing', color: '#f07a2e' },
+  { value: 'fencing', label: 'Fencing', color: '#4a9fd4' },
+  { value: 'hvac', label: 'HVAC / AC', color: '#3daf76' },
+  { value: 'painting', label: 'Painting', color: '#9b59b6' },
+  { value: 'plumbing', label: 'Plumbing', color: '#e74c3c' },
+  { value: 'solar', label: 'Solar', color: '#f1c40f' },
+  { value: 'restoration', label: 'Restoration', color: '#e67e22' },
+  { value: 'other', label: 'Other', color: '#7a8fa4' },
 ];
 
 const getJobType = (type: string) => JOB_TYPES.find(t => t.value === type) || JOB_TYPES[JOB_TYPES.length - 1];
@@ -29,6 +29,12 @@ export default function JobsPage() {
   const [saving, setSaving] = useState(false);
   const [filter, setFilter] = useState<'active' | 'all'>('active');
   const [confirmDelete, setConfirmDelete] = useState<string | null>(null);
+  const [editJob, setEditJob] = useState<{id: string; customer_name: string; address: string; notes: string; status: string; job_type: string} | null>(null);
+  const [editName, setEditName] = useState('');
+  const [editAddress, setEditAddress] = useState('');
+  const [editNotes, setEditNotes] = useState('');
+  const [editType, setEditType] = useState('other');
+  const [editSaving, setEditSaving] = useState(false);
   const [showMap, setShowMap] = useState(false);
   const mapRef = useRef<HTMLDivElement>(null);
   const mapInstanceRef = useRef<any>(null);
@@ -91,18 +97,14 @@ export default function JobsPage() {
             const marker = new google.maps.Marker({
               map: mapInstanceRef.current,
               position: pos,
-              title: job.customer_name,
-              label: {
-                text: jt.emoji,
-                fontSize: '16px',
-              },
+              title: `${job.customer_name} (${jt.label})`,
               icon: {
                 path: google.maps.SymbolPath.CIRCLE,
-                scale: 14,
+                scale: 12,
                 fillColor: job.status === 'active' ? jt.color : '#3d5268',
-                fillOpacity: 0.9,
+                fillOpacity: 0.95,
                 strokeColor: '#fff',
-                strokeWeight: 2,
+                strokeWeight: 2.5,
               },
             });
             const info = new google.maps.InfoWindow({
@@ -124,7 +126,14 @@ export default function JobsPage() {
         });
       });
     }
-    if (hasPoints) mapInstanceRef.current.fitBounds(bounds);
+    if (hasPoints) {
+      mapInstanceRef.current.fitBounds(bounds);
+      // Don't zoom in closer than street level
+      const listener = google.maps.event.addListener(mapInstanceRef.current, 'idle', () => {
+        if (mapInstanceRef.current.getZoom() > 14) mapInstanceRef.current.setZoom(14);
+        google.maps.event.removeListener(listener);
+      });
+    }
   };
 
   const loadJobs = async () => {
@@ -151,6 +160,28 @@ export default function JobsPage() {
   const reopenJob = async (id: string) => {
     await supabase.from('jobs').update({ status: 'active' }).eq('id', id);
     setFilter('active');
+    loadJobs();
+  };
+
+  const openEdit = (job: {id: string; customer_name: string; address: string; notes: string; status: string; job_type: string}) => {
+    setEditJob(job);
+    setEditName(job.customer_name);
+    setEditAddress(job.address);
+    setEditNotes(job.notes);
+    setEditType(job.job_type || 'other');
+  };
+
+  const saveEdit = async () => {
+    if (!editJob) return;
+    setEditSaving(true);
+    await supabase.from('jobs').update({
+      customer_name: editName,
+      address: editAddress,
+      notes: editNotes,
+      job_type: editType,
+    }).eq('id', editJob.id);
+    setEditJob(null);
+    setEditSaving(false);
     loadJobs();
   };
 
@@ -186,7 +217,25 @@ export default function JobsPage() {
         </div>
       )}
 
-      <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', padding:'16px 24px', borderBottom:'1px solid rgba(255,255,255,0.07)', background:'rgba(11,15,20,0.95)', position:'sticky', top:0, zIndex:100 }}>
+      {editJob && (
+        <div className="modal-overlay" onClick={() => setEditJob(null)}>
+          <div className="modal" style={{ maxWidth:'480px' }} onClick={e => e.stopPropagation()}>
+            <div style={{ fontFamily:"'Syne',sans-serif", fontWeight:800, fontSize:'1.1rem', marginBottom:'16px' }}>Edit Job</div>
+            <input value={editName} onChange={e => setEditName(e.target.value)} placeholder="Customer name *" style={{ width:'100%', background:'#0b0f14', border:'1px solid rgba(255,255,255,0.08)', borderRadius:'8px', padding:'10px 14px', color:'#e8edf2', fontFamily:"'DM Sans',sans-serif", fontSize:'0.9rem', outline:'none', marginBottom:'10px' }} />
+            <input value={editAddress} onChange={e => setEditAddress(e.target.value)} placeholder="Address" style={{ width:'100%', background:'#0b0f14', border:'1px solid rgba(255,255,255,0.08)', borderRadius:'8px', padding:'10px 14px', color:'#e8edf2', fontFamily:"'DM Sans',sans-serif", fontSize:'0.9rem', outline:'none', marginBottom:'10px' }} />
+            <select value={editType} onChange={e => setEditType(e.target.value)} className="type-select">
+              {JOB_TYPES.map(jt => (
+                <option key={jt.value} value={jt.value}>{jt.label}</option>
+              ))}
+            </select>
+            <textarea value={editNotes} onChange={e => setEditNotes(e.target.value)} placeholder="Notes" rows={3} style={{ width:'100%', background:'#0b0f14', border:'1px solid rgba(255,255,255,0.08)', borderRadius:'8px', padding:'10px 14px', color:'#e8edf2', fontFamily:"'DM Sans',sans-serif", fontSize:'0.9rem', outline:'none', resize:'vertical', marginBottom:'14px' }} />
+            <div style={{ display:'flex', gap:'10px' }}>
+              <button onClick={saveEdit} disabled={editSaving} style={{ flex:1, padding:'11px', background:'#f07a2e', border:'none', borderRadius:'8px', color:'#fff', fontFamily:"'DM Sans',sans-serif", fontSize:'0.88rem', fontWeight:500, cursor:'pointer' }}>{editSaving ? 'Saving...' : 'Save Changes'}</button>
+              <button onClick={() => setEditJob(null)} style={{ flex:1, padding:'11px', background:'transparent', border:'1px solid rgba(255,255,255,0.08)', borderRadius:'8px', color:'#7a8fa4', fontFamily:"'DM Sans',sans-serif", fontSize:'0.88rem', cursor:'pointer' }}>Cancel</button>
+            </div>
+          </div>
+        </div>
+      )} borderBottom:'1px solid rgba(255,255,255,0.07)', background:'rgba(11,15,20,0.95)', position:'sticky', top:0, zIndex:100 }}>
         <Link href="/dashboard" style={{ fontFamily:"'Syne', sans-serif", fontSize:'1.1rem', fontWeight:800, textDecoration:'none', color:'#e8edf2' }}>Remy<span style={{ color:'#f07a2e' }}>.</span></Link>
         <Link href="/dashboard" style={{ fontSize:'0.8rem', color:'#7a8fa4', textDecoration:'none' }}>Back</Link>
       </div>
@@ -222,7 +271,7 @@ export default function JobsPage() {
               {JOB_TYPES.map(jt => (
                 <div key={jt.value} className="legend-item">
                   <div className="legend-dot" style={{ background: jt.color }} />
-                  {jt.emoji} {jt.label}
+                  {jt.label}
                 </div>
               ))}
             </div>
@@ -236,7 +285,7 @@ export default function JobsPage() {
             <input value={address} onChange={e => setAddress(e.target.value)} placeholder="Address (used for GPS auto-brief and map)" style={{ width:'100%', background:'#0b0f14', border:'1px solid rgba(255,255,255,0.08)', borderRadius:'8px', padding:'10px 14px', color:'#e8edf2', fontFamily:"'DM Sans', sans-serif", fontSize:'0.9rem', outline:'none', marginBottom:'10px' }} />
             <select value={jobType} onChange={e => setJobType(e.target.value)} className="type-select">
               {JOB_TYPES.map(jt => (
-                <option key={jt.value} value={jt.value}>{jt.emoji} {jt.label}</option>
+                <option key={jt.value} value={jt.value}>{jt.label}</option>
               ))}
             </select>
             <textarea value={notes} onChange={e => setNotes(e.target.value)} placeholder="Notes about this job" rows={3} style={{ width:'100%', background:'#0b0f14', border:'1px solid rgba(255,255,255,0.08)', borderRadius:'8px', padding:'10px 14px', color:'#e8edf2', fontFamily:"'DM Sans', sans-serif", fontSize:'0.9rem', outline:'none', resize:'vertical', marginBottom:'14px' }} />
@@ -258,11 +307,11 @@ export default function JobsPage() {
             {jobs.map(job => {
               const jt = getJobType(job.job_type);
               return (
-                <div key={job.id} style={{ background:'#111820', border:`1px solid ${job.status === 'active' ? jt.color + '33' : 'rgba(255,255,255,0.08)'}`, borderRadius:'12px', padding:'16px 20px' }}>
+                <div key={job.id} style={{ background:'#111820', border:`1px solid ${job.status === 'active' ? jt.color + '33' : 'rgba(255,255,255,0.08)'}`, borderRadius:'12px', padding:'16px 20px', cursor:'pointer', transition:'border-color 0.2s' }} onClick={() => openEdit(job)}>
                   <div style={{ display:'flex', justifyContent:'space-between', alignItems:'flex-start', gap:'12px' }}>
                     <div style={{ flex:1 }}>
                       <div style={{ display:'flex', alignItems:'center', gap:'8px', marginBottom:'3px' }}>
-                        <span style={{ fontSize:'1rem' }}>{jt.emoji}</span>
+                        <div style={{ width:'10px', height:'10px', borderRadius:'50%', background: jt.color, flexShrink:0 }} />
                         <div style={{ fontWeight:500 }}>{job.customer_name}</div>
                         <span style={{ fontSize:'0.62rem', fontWeight:600, color: jt.color, background: jt.color + '22', padding:'2px 8px', borderRadius:'4px' }}>{jt.label}</span>
                       </div>
@@ -270,7 +319,7 @@ export default function JobsPage() {
                       {job.notes && <div style={{ fontSize:'0.75rem', color:'#3d5268', marginTop:'4px' }}>{job.notes}</div>}
                       <div style={{ fontSize:'0.62rem', color: job.status === 'active' ? '#3daf76' : '#3d5268', marginTop:'6px', textTransform:'uppercase', letterSpacing:'0.08em', fontWeight:600 }}>{job.status}</div>
                     </div>
-                    <div style={{ display:'flex', gap:'6px', alignItems:'center', flexShrink:0, flexWrap:'wrap', justifyContent:'flex-end' }}>
+                    <div style={{ display:'flex', gap:'6px', alignItems:'center', flexShrink:0, flexWrap:'wrap', justifyContent:'flex-end' }} onClick={e => e.stopPropagation()}>
                       {job.status === 'active' && (
                         <Link href={`/dashboard/voice?jobId=${job.id}`} className="action-btn" style={{ background:'rgba(240,122,46,0.1)', borderColor:'rgba(240,122,46,0.2)', color:'#f07a2e', textDecoration:'none', display:'inline-block' }}>Talk to Remy</Link>
                       )}
