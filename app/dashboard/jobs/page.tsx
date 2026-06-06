@@ -47,7 +47,7 @@ export default function JobsPage() {
   useEffect(() => { if (!isLoaded) return; loadJobs(); }, [isLoaded]);
   useEffect(() => { if (isLoaded) loadJobs(); }, [filter]);
   useEffect(() => { loadGoogleMaps(); }, []);
-  useEffect(() => { if (showMap && mapInstanceRef.current) plotJobs(); }, [jobs]);
+  useEffect(() => { if (showMap) { if (mapInstanceRef.current) plotJobs(); else initMap(); } }, [showMap, jobs]);
   useEffect(() => {
     if (showNew && (window as any).google?.maps?.places && addressInputRef.current) {
       initAutocomplete(addressInputRef.current, setAddress);
