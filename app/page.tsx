@@ -84,7 +84,7 @@ export default function LandingPage() {
       <div style={{ maxWidth:'700px', margin:'0 auto', padding:'0 40px 80px' }}>
         <div className="quote-card">
           <div style={{ fontSize:'1.2rem', lineHeight:1.7, color:'#e8edf2', fontWeight:300, marginBottom:'20px' }}>
-            'I pulled up to a roofing job and before I even got out of the truck, Remy told me there was a storm coming Thursday and gave me the exact line to use at the door. Signed the deal in 20 minutes.'
+            I pulled up to a roofing job and before I got out of the truck, Remy told me there was a storm coming Thursday and gave me the exact line to use at the door. Signed the deal in 20 minutes.
           </div>
           <div style={{ fontSize:'0.82rem', color:'#3d5268' }}>Field rep, residential roofing â€” South Florida</div>
         </div>
