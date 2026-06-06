@@ -119,19 +119,15 @@ function VoiceInner() {
       const found = allJobs.find((j: {id: string}) => j.id === jobId);
       if (found) {
         setActiveJob(found);
-        await doSend(
-          `Brief me fast. Pulling up to ${found.customer_name}${found.address ? ` at ${found.address}` : ''}${found.notes ? `. Notes: ${found.notes}` : ''}.`,
-          [], docText, found, repMemories
-        );
+        // Don't auto-brief â€” just load the job silently
+        setMessages([{ role: 'assistant', content: `Job loaded: ${found.customer_name}${found.address ? ` at ${found.address}` : ''}. Tap mic or type to talk, or hit Brief Me when you are ready.` }]);
         return;
       }
     }
 
-    // Morning brief only if no jobId in URL
+    // No auto morning brief â€” let rep initiate
     if (allJobs.length > 0) {
-      const jobList = allJobs.slice(0, 5).map((j: {customer_name: string; address: string}) => `${j.customer_name}${j.address ? ` at ${j.address}` : ''}`).join(', ');
-      const morningPrompt = `Give me a quick morning brief. I have ${allJobs.length} active job${allJobs.length > 1 ? 's' : ''} today: ${jobList}. What should I know to start the day strong?`;
-      await doSend(morningPrompt, [], docText, null, repMemories);
+      setMessages([{ role: 'assistant', content: `Hey. ${allJobs.length} active job${allJobs.length > 1 ? 's' : ''} today. Select a job above or tap Brief My Day to get started.` }]);
       return;
     }
 
@@ -280,9 +276,22 @@ function VoiceInner() {
           )}
           {listening && <span style={{ fontSize:'0.62rem', color:'#f07a2e', fontWeight:600, letterSpacing:'0.1em', textTransform:'uppercase', flexShrink:0 }}>Listening...</span>}
           {!speaking && !listening && (
-            <div onClick={() => setShowJobPicker(!showJobPicker)} style={{ display:'inline-flex', alignItems:'center', gap:'5px', background:'rgba(240,122,46,0.08)', border:'1px solid rgba(240,122,46,0.2)', borderRadius:'100px', padding:'6px 14px', fontSize:'0.72rem', color:'#f07a2e', cursor:'pointer', fontWeight:500, whiteSpace:'nowrap', overflow:'hidden', textOverflow:'ellipsis', maxWidth:'160px' }}>
-              {activeJob ? activeJob.customer_name : '+ Select Job'}
+            <div onClick={() => setShowJobPicker(!showJobPicker)} style={{ display:'inline-flex', alignItems:'center', gap:'5px', background:'rgba(240,122,46,0.08)', border:'1px solid rgba(240,122,46,0.2)', borderRadius:'100px', padding:'6px 14px', fontSize:'0.72rem', color:'#f07a2e', cursor:'pointer', fontWeight:500, whiteSpace:'nowrap', overflow:'hidden', textOverflow:'ellipsis', maxWidth:'130px' }}>
+              {activeJob ? activeJob.customer_name : '+ Job'}
             </div>
+          )}
+          {activeJob && !speaking && !listening && (
+            <button onClick={() => doSend(`Brief me fast. Pulling up to ${activeJob.customer_name}${activeJob.address ? ` at ${activeJob.address}` : ''}${activeJob.notes ? `. Notes: ${activeJob.notes}` : ''}.`, messages, doctrine, activeJob, memories)} style={{ padding:'6px 12px', background:'rgba(240,122,46,0.15)', border:'1px solid rgba(240,122,46,0.3)', borderRadius:'20px', color:'#f07a2e', fontFamily:"'DM Sans',sans-serif", fontSize:'0.68rem', fontWeight:600, cursor:'pointer', whiteSpace:'nowrap' }}>
+              Brief Me
+            </button>
+          )}
+          {!activeJob && !speaking && !listening && jobs.length > 0 && (
+            <button onClick={() => {
+              const jobList = jobs.slice(0, 5).map(j => `${j.customer_name}${j.address ? ` at ${j.address}` : ''}`).join(', ');
+              doSend(`Give me a quick morning brief. I have ${jobs.length} active jobs today: ${jobList}. What should I know to start the day strong?`, messages, doctrine, null, memories);
+            }} style={{ padding:'6px 12px', background:'rgba(61,175,118,0.1)', border:'1px solid rgba(61,175,118,0.25)', borderRadius:'20px', color:'#3daf76', fontFamily:"'DM Sans',sans-serif", fontSize:'0.68rem', fontWeight:600, cursor:'pointer', whiteSpace:'nowrap' }}>
+              Brief My Day
+            </button>
           )}
           <button className="save-btn" onClick={autoSaveSession} disabled={sessionSaved || messages.length < 4}>
             {sessionSaved ? 'Saved' : 'Save'}
