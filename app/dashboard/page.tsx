@@ -60,7 +60,7 @@ export default function DashboardPage() {
           <Link href="/boss" className="card" style={{ borderColor:'rgba(74,159,212,0.25)', background:'rgba(74,159,212,0.04)' }}>
             <div className="card-icon" style={{ background:'rgba(74,159,212,0.1)', color:'#4a9fd4' }}>CMD</div>
             <div style={{ fontFamily:"'Syne', sans-serif", fontWeight:700, fontSize:'1rem', marginBottom:'6px', color:'#4a9fd4' }}>Command Center</div>
-            <div style={{ color:'#7a8fa4', fontSize:'0.82rem', fontWeight:300 }}>Boss view â€” jobs, conversations, doctrine</div>
+            <div style={{ color:'#7a8fa4', fontSize:'0.82rem', fontWeight:300 }}>Boss view: jobs, conversations, doctrine</div>
           </Link>
         </div>
       </div>
