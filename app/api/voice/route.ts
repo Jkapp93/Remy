@@ -1,8 +1,10 @@
 ﻿import { NextRequest, NextResponse } from 'next/server';
+
 export async function POST(req: NextRequest) {
   try {
     const { text } = await req.json();
     if (!text) return NextResponse.json({ error: 'No text' }, { status: 400 });
+
     const response = await fetch('https://api.cartesia.ai/tts/bytes', {
       method: 'POST',
       headers: {
@@ -22,18 +24,22 @@ export async function POST(req: NextRequest) {
           encoding: 'mp3',
           sample_rate: 44100,
         },
+        stream: true,
       }),
     });
+
     if (!response.ok) {
       const err = await response.text();
       console.error('Cartesia error:', err);
       return NextResponse.json({ error: 'TTS failed', details: err }, { status: 500 });
     }
-    const audioBuffer = await response.arrayBuffer();
-    return new NextResponse(audioBuffer, {
+
+    // Stream the audio directly back to the client
+    return new NextResponse(response.body, {
       headers: {
         'Content-Type': 'audio/mpeg',
-        'Content-Length': audioBuffer.byteLength.toString(),
+        'Transfer-Encoding': 'chunked',
+        'Cache-Control': 'no-cache',
       },
     });
   } catch (error) {
