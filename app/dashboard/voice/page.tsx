@@ -65,15 +65,32 @@ function VoiceInner() {
   const autoSaveSession = async () => {
     if (sessionSaved || messagesRef.current.length < 4) return;
     try {
-      await fetch('/api/memory', {
+      const jobContext = activeJobRef.current ? `Job: ${activeJobRef.current.customer_name}` : '';
+      
+      // Save to memory (summarized)
+      const memRes = await fetch('/api/memory', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           messages: messagesRef.current,
           repId: user?.id,
-          jobContext: activeJobRef.current ? `Job: ${activeJobRef.current.customer_name}` : ''
+          jobContext,
         }),
       });
+      const memData = await memRes.json();
+
+      // Save full conversation log to conversations table
+      await fetch('/api/conversations', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          jobId: activeJobRef.current?.id || null,
+          repId: user?.id || null,
+          messages: messagesRef.current,
+          summary: memData.summary || null,
+        }),
+      });
+
       setSessionSaved(true);
     } catch { /* silent */ }
   };
