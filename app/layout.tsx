@@ -3,10 +3,10 @@ import { ClerkProvider } from '@clerk/nextjs';
 import './globals.css';
 
 export const metadata: Metadata = {
-  title: 'Remy â€” AI Co-Pilot for Home Services Reps',
+  title: 'Remy - AI Co-Pilot for Home Services Reps',
   description: 'Pre-job briefs, live objection coaching, weather intel, and GPS co-pilot. Built for home services field reps.',
   openGraph: {
-    title: 'Remy â€” AI Co-Pilot for Home Services Reps',
+    title: 'Remy - AI Co-Pilot for Home Services Reps',
     description: 'Pre-job briefs, live objection coaching, weather intel, and GPS co-pilot.',
     url: 'https://remy-nu.vercel.app',
     siteName: 'Remy',
@@ -14,7 +14,7 @@ export const metadata: Metadata = {
   },
   twitter: {
     card: 'summary_large_image',
-    title: 'Remy â€” AI Co-Pilot for Home Services Reps',
+    title: 'Remy - AI Co-Pilot for Home Services Reps',
     description: 'Pre-job briefs, live objection coaching, weather intel, and GPS co-pilot.',
   },
   icons: {
