@@ -49,7 +49,7 @@ export async function POST(req: NextRequest) {
 
     // Rate limiting check
     if (repId) {
-      const limitRes = await fetch(`${process.env.NEXT_PUBLIC_APP_URL}/api/rate-limit?repId=${repId}`).catch(() => null);
+      const limitRes = await fetch(`https://remy-nu.vercel.app/api/rate-limit?repId=${repId}`).catch(() => null);
       if (limitRes) {
         const limitData = await limitRes.json();
         if (!limitData.allowed) {
@@ -59,7 +59,7 @@ export async function POST(req: NextRequest) {
           });
         }
         // Increment usage
-        fetch(`${process.env.NEXT_PUBLIC_APP_URL}/api/rate-limit`, {
+        fetch(`https://remy-nu.vercel.app/api/rate-limit`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ repId }),
@@ -160,7 +160,7 @@ ${contextAdditions}`;
     // If note intent detected, save the note in background
     if (isNoteRequest && repId) {
       const rawNote = messages[messages.length - 1]?.content || '';
-      fetch(`${process.env.NEXT_PUBLIC_APP_URL}/api/notes`, {
+      fetch(`https://remy-nu.vercel.app/api/notes`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ repId, jobId, rawNote, jobName: jobContext?.split('\n')[0] }),
