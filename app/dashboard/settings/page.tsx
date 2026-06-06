@@ -2,6 +2,7 @@
 import { UserProfile, useUser } from '@clerk/nextjs';
 import Link from 'next/link';
 import { useState, useEffect } from 'react';
+import { supabase } from '../../../lib/supabase';
 
 const VOICES = [
   { id: 'f786b574-daa5-4673-aa0c-cbe3e8534c02', name: 'Remy', description: 'Default voice' },
@@ -13,14 +14,32 @@ const VOICES = [
 ];
 
 export default function SettingsPage() {
-  const { isLoaded, isSignedIn } = useUser();
+  const { isLoaded, isSignedIn, user } = useUser();
   const [selectedVoice, setSelectedVoice] = useState('f786b574-daa5-4673-aa0c-cbe3e8534c02');
   const [testing, setTesting] = useState<string | null>(null);
+  const [shareConversations, setShareConversations] = useState(true);
+  const [savingShare, setSavingShare] = useState(false);
 
   useEffect(() => {
     const saved = localStorage.getItem('remy_voice');
     if (saved) setSelectedVoice(saved);
-  }, []);
+    loadSharePref();
+  }, [user]);
+
+  const loadSharePref = async () => {
+    if (!user) return;
+    const { data } = await supabase.from('profiles').select('share_conversations').eq('clerk_id', user.id).single();
+    if (data) setShareConversations(data.share_conversations ?? true);
+  };
+
+  const toggleShare = async () => {
+    if (!user) return;
+    setSavingShare(true);
+    const newVal = !shareConversations;
+    setShareConversations(newVal);
+    await supabase.from('profiles').update({ share_conversations: newVal }).eq('clerk_id', user.id);
+    setSavingShare(false);
+  };
 
   const selectVoice = (id: string) => {
     setSelectedVoice(id);
@@ -90,6 +109,24 @@ export default function SettingsPage() {
             ))}
           </div>
           <div style={{ fontSize:'0.72rem', color:'#2d3f52', marginTop:'10px' }}>Voice selection saves automatically and applies to all future conversations.</div>
+        </div>
+
+        {/* Conversation Sharing */}
+        <div style={{ marginBottom:'32px' }}>
+          <div style={{ fontSize:'0.68rem', fontWeight:600, letterSpacing:'0.12em', textTransform:'uppercase', color:'#3d5268', marginBottom:'14px' }}>Privacy</div>
+          <div style={{ background:'#111820', border:'1px solid rgba(255,255,255,0.07)', borderRadius:'12px', padding:'18px 20px', display:'flex', justifyContent:'space-between', alignItems:'center', gap:'20px' }}>
+            <div>
+              <div style={{ fontWeight:500, fontSize:'0.9rem', marginBottom:'4px' }}>Share conversations with my boss</div>
+              <div style={{ fontSize:'0.78rem', color:'#3d5268', fontWeight:300, lineHeight:1.5 }}>Allow your admin to see conversation summaries for coaching and training. Your full transcript is never shared.</div>
+            </div>
+            <button
+              onClick={toggleShare}
+              disabled={savingShare}
+              style={{ flexShrink:0, width:'52px', height:'28px', borderRadius:'14px', border:'none', background: shareConversations ? '#f07a2e' : 'rgba(255,255,255,0.08)', cursor:'pointer', position:'relative', transition:'background 0.2s' }}
+            >
+              <div style={{ position:'absolute', top:'3px', left: shareConversations ? '27px' : '3px', width:'22px', height:'22px', borderRadius:'50%', background:'#fff', transition:'left 0.2s' }} />
+            </button>
+          </div>
         </div>
 
         {/* Account */}
