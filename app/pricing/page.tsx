@@ -7,7 +7,7 @@ const PLANS = [
   {
     id: 'solo',
     name: 'Solo',
-    price: 149,
+    price: 199,
     description: 'For the independent rep or owner-operator',
     features: [
       'One user',
@@ -22,14 +22,14 @@ const PLANS = [
     popular: false,
   },
   {
-    id: 'team',
-    name: 'Team',
-    price: 499,
-    description: 'For small teams of 2-10 reps',
+    id: 'command',
+    name: 'Command',
+    price: 800,
+    description: 'For small teams of up to 5 reps',
     features: [
-      'Up to 10 users',
+      'Up to 5 users',
       'Everything in Solo',
-      'Boss command center',
+      'Boss Command Center',
       'Team invite system',
       'Broadcast to all reps',
       'Conversation summaries',
@@ -39,13 +39,13 @@ const PLANS = [
     popular: true,
   },
   {
-    id: 'company',
-    name: 'Company',
-    price: 1299,
+    id: 'enterprise',
+    name: 'Enterprise',
+    price: 1499,
     description: 'For larger teams and multi-location businesses',
     features: [
-      'Unlimited users',
-      'Everything in Team',
+      'Up to 15 users',
+      'Everything in Command',
       'Priority support',
       'Custom doctrine setup',
       'CRM webhook integration',
