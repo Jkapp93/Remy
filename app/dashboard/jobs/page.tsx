@@ -4,8 +4,6 @@ import { useUser } from '@clerk/nextjs';
 import Link from 'next/link';
 import { supabase } from '../../../lib/supabase';
 
-declare global { interface Window { google: any; } }
-
 export default function JobsPage() {
   const { isLoaded } = useUser();
   const [jobs, setJobs] = useState<{id: string; customer_name: string; address: string; notes: string; status: string}[]>([]);
@@ -18,21 +16,12 @@ export default function JobsPage() {
   const [filter, setFilter] = useState<'active' | 'all'>('active');
   const [confirmDelete, setConfirmDelete] = useState<string | null>(null);
   const [expandedJob, setExpandedJob] = useState<string | null>(null);
-  const [mapLoaded, setMapLoaded] = useState(false);
   const [showMap, setShowMap] = useState(false);
   const mapRef = useRef<HTMLDivElement>(null);
-  const mapInstanceRef = useRef<any>(null);
 
-  useEffect(() => {
-    if (!isLoaded) return;
-    loadJobs();
-  }, [isLoaded]);
-
+  useEffect(() => { if (!isLoaded) return; loadJobs(); }, [isLoaded]);
   useEffect(() => { if (isLoaded) loadJobs(); }, [filter]);
-
-  useEffect(() => {
-    if (showMap && jobs.length > 0) initMap();
-  }, [showMap, jobs]);
+  useEffect(() => { if (showMap && jobs.length > 0 && mapRef.current) initMap(); }, [showMap, jobs]);
 
   const loadJobs = async () => {
     setLoading(true);
@@ -44,45 +33,34 @@ export default function JobsPage() {
 
   const initMap = async () => {
     if (!mapRef.current) return;
-    if (!window.google) {
-      const script = document.createElement('script');
-      script.src = `https://maps.googleapis.com/maps/api/js?key=AIzaSyD-placeholder&libraries=geocoding`;
-      script.onload = () => { setMapLoaded(true); renderMap(); };
-      document.head.appendChild(script);
-    } else {
-      renderMap();
+    if (typeof window === 'undefined' || !(window as any).google) {
+      if (mapRef.current) {
+        mapRef.current.innerHTML = `<div style="color:#3d5268;font-size:0.85rem;text-align:center;padding:80px 20px">Map requires Google Maps API key.<br/><span style="font-size:0.75rem">Add NEXT_PUBLIC_GOOGLE_MAPS_KEY to Vercel env vars.</span></div>`;
+      }
+      return;
     }
-  };
-
-  const renderMap = async () => {
-    if (!mapRef.current || !window.google) return;
-    const map = new window.google.maps.Map(mapRef.current, {
+    const google = (window as any).google;
+    const map = new google.maps.Map(mapRef.current, {
       zoom: 10,
-      center: { lat: 26.1420, lng: -81.7948 }, // Cape Coral FL
+      center: { lat: 26.1420, lng: -81.7948 },
       styles: [
         { elementType: 'geometry', stylers: [{ color: '#0b0f14' }] },
-        { elementType: 'labels.text.stroke', stylers: [{ color: '#0b0f14' }] },
         { elementType: 'labels.text.fill', stylers: [{ color: '#7a8fa4' }] },
         { featureType: 'road', elementType: 'geometry', stylers: [{ color: '#111820' }] },
         { featureType: 'water', elementType: 'geometry', stylers: [{ color: '#060a0f' }] },
       ],
     });
-    mapInstanceRef.current = map;
-    const geocoder = new window.google.maps.Geocoder();
+    const geocoder = new google.maps.Geocoder();
     for (const job of jobs) {
       if (!job.address) continue;
       geocoder.geocode({ address: job.address }, (results: any, status: any) => {
         if (status === 'OK' && results[0]) {
-          const marker = new window.google.maps.Marker({
-            map,
-            position: results[0].geometry.location,
-            title: job.customer_name,
-            icon: { path: window.google.maps.SymbolPath.CIRCLE, scale: 8, fillColor: '#f07a2e', fillOpacity: 1, strokeColor: '#fff', strokeWeight: 2 },
+          const marker = new google.maps.Marker({
+            map, position: results[0].geometry.location, title: job.customer_name,
+            icon: { path: google.maps.SymbolPath.CIRCLE, scale: 8, fillColor: '#f07a2e', fillOpacity: 1, strokeColor: '#fff', strokeWeight: 2 },
           });
-          const infoWindow = new window.google.maps.InfoWindow({
-            content: `<div style="color:#000;font-family:sans-serif;padding:4px"><strong>${job.customer_name}</strong><br/>${job.address}</div>`,
-          });
-          marker.addListener('click', () => infoWindow.open(map, marker));
+          const info = new google.maps.InfoWindow({ content: `<div style="color:#000;padding:4px"><strong>${job.customer_name}</strong><br/>${job.address}</div>` });
+          marker.addListener('click', () => info.open(map, marker));
         }
       });
     }
@@ -93,9 +71,7 @@ export default function JobsPage() {
     setSaving(true);
     await supabase.from('jobs').insert({ customer_name: customerName, address, notes, status: 'active' });
     setCustomerName(''); setAddress(''); setNotes('');
-    setShowNew(false);
-    setSaving(false);
-    loadJobs();
+    setShowNew(false); setSaving(false); loadJobs();
   };
 
   const closeJob = async (id: string) => {
@@ -107,9 +83,10 @@ export default function JobsPage() {
     await supabase.from('jobs').update({ status: 'active' }).eq('id', id);
     loadJobs();
   };
+
+  const deleteJob = async (id: string) => {
     await supabase.from('jobs').delete().eq('id', id);
-    setConfirmDelete(null);
-    loadJobs();
+    setConfirmDelete(null); loadJobs();
   };
 
   return (
@@ -121,19 +98,14 @@ export default function JobsPage() {
         .modal { background:#111820; border:1px solid rgba(255,255,255,0.1); border-radius:14px; padding:28px; max-width:400px; width:90%; }
       `}</style>
 
-      {/* Confirm Delete Modal */}
       {confirmDelete && (
         <div className="modal-overlay" onClick={() => setConfirmDelete(null)}>
           <div className="modal" onClick={e => e.stopPropagation()}>
             <div style={{ fontFamily:"'Syne',sans-serif", fontWeight:800, fontSize:'1.1rem', marginBottom:'10px' }}>Delete this job?</div>
             <div style={{ color:'#7a8fa4', fontSize:'0.88rem', fontWeight:300, marginBottom:'24px' }}>This cannot be undone. The job and all related data will be permanently removed.</div>
             <div style={{ display:'flex', gap:'10px' }}>
-              <button onClick={() => deleteJob(confirmDelete)} style={{ flex:1, padding:'11px', background:'rgba(200,74,74,0.15)', border:'1px solid rgba(200,74,74,0.3)', borderRadius:'8px', color:'#c84a4a', fontFamily:"'DM Sans',sans-serif", fontSize:'0.88rem', fontWeight:500, cursor:'pointer' }}>
-                Delete
-              </button>
-              <button onClick={() => setConfirmDelete(null)} style={{ flex:1, padding:'11px', background:'transparent', border:'1px solid rgba(255,255,255,0.08)', borderRadius:'8px', color:'#7a8fa4', fontFamily:"'DM Sans',sans-serif", fontSize:'0.88rem', cursor:'pointer' }}>
-                Cancel
-              </button>
+              <button onClick={() => deleteJob(confirmDelete)} style={{ flex:1, padding:'11px', background:'rgba(200,74,74,0.15)', border:'1px solid rgba(200,74,74,0.3)', borderRadius:'8px', color:'#c84a4a', fontFamily:"'DM Sans',sans-serif", fontSize:'0.88rem', fontWeight:500, cursor:'pointer' }}>Delete</button>
+              <button onClick={() => setConfirmDelete(null)} style={{ flex:1, padding:'11px', background:'transparent', border:'1px solid rgba(255,255,255,0.08)', borderRadius:'8px', color:'#7a8fa4', fontFamily:"'DM Sans',sans-serif", fontSize:'0.88rem', cursor:'pointer' }}>Cancel</button>
             </div>
           </div>
         </div>
@@ -166,16 +138,9 @@ export default function JobsPage() {
           ))}
         </div>
 
-        {/* Map View */}
         {showMap && (
-          <div style={{ marginBottom:'20px', borderRadius:'12px', overflow:'hidden', border:'1px solid rgba(255,255,255,0.08)', height:'300px', background:'#111820', display:'flex', alignItems:'center', justifyContent:'center' }}>
-            <div ref={mapRef} style={{ width:'100%', height:'100%' }} />
-            {!window?.google && (
-              <div style={{ color:'#3d5268', fontSize:'0.85rem', textAlign:'center', padding:'20px' }}>
-                Map requires Google Maps API key.<br/>
-                <span style={{ fontSize:'0.75rem' }}>Add NEXT_PUBLIC_GOOGLE_MAPS_KEY to Vercel env vars.</span>
-              </div>
-            )}
+          <div style={{ marginBottom:'20px', borderRadius:'12px', overflow:'hidden', border:'1px solid rgba(255,255,255,0.08)', height:'300px', background:'#111820' }}>
+            <div ref={mapRef} style={{ width:'100%', height:'100%', display:'flex', alignItems:'center', justifyContent:'center' }} />
           </div>
         )}
 
@@ -208,7 +173,7 @@ export default function JobsPage() {
                     {job.address && <div style={{ fontSize:'0.82rem', color:'#7a8fa4', fontWeight:300 }}>{job.address}</div>}
                     <div style={{ fontSize:'0.65rem', color: job.status === 'active' ? '#3daf76' : '#3d5268', marginTop:'4px', textTransform:'uppercase', letterSpacing:'0.08em' }}>{job.status}</div>
                   </div>
-                  <div style={{ fontSize:'0.72rem', color:'#3d5268' }}>{expandedJob === job.id ? 'â–²' : 'â–¼'}</div>
+                  <div style={{ fontSize:'0.72rem', color:'#3d5268', marginLeft:'8px' }}>{expandedJob === job.id ? 'v' : '>'}</div>
                 </div>
                 {expandedJob === job.id && (
                   <div style={{ marginTop:'14px', borderTop:'1px solid rgba(255,255,255,0.05)', paddingTop:'14px' }}>
