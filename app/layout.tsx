@@ -1,51 +1,47 @@
-﻿import type { Metadata, Viewport } from 'next';
+﻿import type { Metadata } from 'next';
 import { ClerkProvider } from '@clerk/nextjs';
 import './globals.css';
 
 export const metadata: Metadata = {
-  title: 'Remy - AI Field Companion',
-  description: 'Voice-first AI that rides along with your field reps.',
-  manifest: '/manifest.json',
-  appleWebApp: {
-    capable: true,
-    statusBarStyle: 'black-translucent',
-    title: 'Remy',
+  title: 'Remy â€” AI Co-Pilot for Home Services Reps',
+  description: 'Pre-job briefs, live objection coaching, weather intel, and GPS co-pilot. Built for home services field reps.',
+  openGraph: {
+    title: 'Remy â€” AI Co-Pilot for Home Services Reps',
+    description: 'Pre-job briefs, live objection coaching, weather intel, and GPS co-pilot.',
+    url: 'https://remy-nu.vercel.app',
+    siteName: 'Remy',
+    type: 'website',
   },
-};
-
-export const viewport: Viewport = {
-  themeColor: '#0b0f14',
-  width: 'device-width',
-  initialScale: 1,
-  maximumScale: 1,
-  userScalable: false,
+  twitter: {
+    card: 'summary_large_image',
+    title: 'Remy â€” AI Co-Pilot for Home Services Reps',
+    description: 'Pre-job briefs, live objection coaching, weather intel, and GPS co-pilot.',
+  },
+  icons: {
+    icon: '/icon.svg',
+    apple: '/icon.svg',
+  },
+  manifest: '/manifest.json',
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
-    <ClerkProvider>
+    <ClerkProvider
+      publishableKey={process.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY}
+      afterSignInUrl="/dashboard"
+      afterSignUpUrl="/onboard"
+    >
       <html lang="en">
         <head>
-          <link rel="apple-touch-icon" href="/icon-192.png" />
+          <meta name="mobile-web-app-capable" content="yes" />
           <meta name="apple-mobile-web-app-capable" content="yes" />
           <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
-          <script dangerouslySetInnerHTML={{ __html: `
-            window.__remyAudio = null;
-            window.__stopRemyAudio = function() {
-              if (window.__remyAudio) {
-                window.__remyAudio.pause();
-                window.__remyAudio.src = '';
-                window.__remyAudio = null;
-              }
-            };
-            window.addEventListener('popstate', window.__stopRemyAudio);
-            document.addEventListener('click', function(e) {
-              var a = e.target.closest('a');
-              if (a && a.href) window.__stopRemyAudio();
-            }, true);
-          ` }} />
+          <meta name="theme-color" content="#0b0f14" />
+          <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
         </head>
-        <body>{children}</body>
+        <body style={{ margin: 0, padding: 0, background: '#0b0f14' }}>
+          {children}
+        </body>
       </html>
     </ClerkProvider>
   );
