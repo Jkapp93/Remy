@@ -21,8 +21,8 @@ export async function POST(req: NextRequest) {
       payment_method_types: ['card'],
       line_items: [{ price: PLANS[plan as keyof typeof PLANS], quantity: 1 }],
       customer_email: email || undefined,
-      success_url: `${process.env.NEXT_PUBLIC_APP_URL}/dashboard?welcome=true`,
-      cancel_url: `${process.env.NEXT_PUBLIC_APP_URL}/pricing`,
+      success_url: 'https://remy-nu.vercel.app/dashboard?welcome=true',
+      cancel_url: 'https://remy-nu.vercel.app/pricing',
       metadata: { plan },
     });
 
