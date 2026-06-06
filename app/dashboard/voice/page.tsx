@@ -103,6 +103,19 @@ function VoicePageInner() {
       setMessages(updated);
       sessionMessagesRef.current = updated;
       await speak(reply);
+      // Save conversation after each exchange
+      if (user) {
+        fetch('/api/conversations', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            jobId: currentJob?.id,
+            repId: user.id,
+            messages: updated,
+            summary: reply.slice(0, 200),
+          }),
+        }).catch(() => {});
+      }
     } catch {
       setMessages(prev => [...prev, { role: 'assistant', content: 'Connection issue. Try again.' }]);
     }
