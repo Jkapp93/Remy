@@ -15,6 +15,8 @@ const isPublicRoute = createRouteMatcher([
   '/api/onboard-check(.*)',
   '/api/conversations(.*)',
   '/api/memory(.*)',
+  '/api/rate-limit(.*)',
+  '/api/notes(.*)',
 ]);
 export default clerkMiddleware((auth, request) => {
   if (!isPublicRoute(request)) {
