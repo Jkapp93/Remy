@@ -49,6 +49,7 @@ export default function JobsPage() {
   useEffect(() => { if (!isLoaded) return; loadJobs(); }, [isLoaded, profile]);
   useEffect(() => { if (isLoaded) loadJobs(); }, [filter]);
   useEffect(() => { loadGoogleMaps(); }, []);
+  useEffect(() => { if (showMap) { if (mapInstanceRef.current) plotJobs(); else { const iv = setInterval(() => { if ((window as any).google?.maps) { clearInterval(iv); initMap(); } }, 200); setTimeout(() => clearInterval(iv), 5000); } } }, [showMap]);
   useEffect(() => { if (showMap && mapInstanceRef.current) plotJobs(); }, [jobs]);
   useEffect(() => {
     if (showNew && (window as any).google?.maps?.places && addressInputRef.current) {
