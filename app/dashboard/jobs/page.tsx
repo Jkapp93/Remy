@@ -4,14 +4,28 @@ import { useUser } from '@clerk/nextjs';
 import Link from 'next/link';
 import { supabase } from '../../../lib/supabase';
 
+const JOB_TYPES = [
+  { value: 'roofing', label: 'Roofing', color: '#f07a2e', emoji: 'ðŸ ' },
+  { value: 'fencing', label: 'Fencing', color: '#4a9fd4', emoji: 'ðŸ”©' },
+  { value: 'hvac', label: 'HVAC / AC', color: '#3daf76', emoji: 'â„ï¸' },
+  { value: 'painting', label: 'Painting', color: '#9b59b6', emoji: 'ðŸŽ¨' },
+  { value: 'plumbing', label: 'Plumbing', color: '#e74c3c', emoji: 'ðŸ”§' },
+  { value: 'solar', label: 'Solar', color: '#f1c40f', emoji: 'â˜€ï¸' },
+  { value: 'restoration', label: 'Restoration', color: '#e67e22', emoji: 'ðŸ”¨' },
+  { value: 'other', label: 'Other', color: '#7a8fa4', emoji: 'ðŸ“‹' },
+];
+
+const getJobType = (type: string) => JOB_TYPES.find(t => t.value === type) || JOB_TYPES[JOB_TYPES.length - 1];
+
 export default function JobsPage() {
   const { isLoaded } = useUser();
-  const [jobs, setJobs] = useState<{id: string; customer_name: string; address: string; notes: string; status: string}[]>([]);
+  const [jobs, setJobs] = useState<{id: string; customer_name: string; address: string; notes: string; status: string; job_type: string}[]>([]);
   const [loading, setLoading] = useState(true);
   const [showNew, setShowNew] = useState(false);
   const [customerName, setCustomerName] = useState('');
   const [address, setAddress] = useState('');
   const [notes, setNotes] = useState('');
+  const [jobType, setJobType] = useState('roofing');
   const [saving, setSaving] = useState(false);
   const [filter, setFilter] = useState<'active' | 'all'>('active');
   const [confirmDelete, setConfirmDelete] = useState<string | null>(null);
@@ -22,14 +36,8 @@ export default function JobsPage() {
 
   useEffect(() => { if (!isLoaded) return; loadJobs(); }, [isLoaded]);
   useEffect(() => { if (isLoaded) loadJobs(); }, [filter]);
-
-  useEffect(() => {
-    if (showMap) loadGoogleMaps();
-  }, [showMap]);
-
-  useEffect(() => {
-    if (showMap && mapInstanceRef.current && jobs.length > 0) plotJobs();
-  }, [jobs, showMap]);
+  useEffect(() => { if (showMap) loadGoogleMaps(); }, [showMap]);
+  useEffect(() => { if (showMap && mapInstanceRef.current) plotJobs(); }, [jobs, showMap]);
 
   const loadGoogleMaps = () => {
     const key = process.env.NEXT_PUBLIC_GOOGLE_MAPS_KEY;
@@ -75,6 +83,7 @@ export default function JobsPage() {
     let hasPoints = false;
     for (const job of jobs) {
       if (!job.address) continue;
+      const jt = getJobType(job.job_type);
       await new Promise<void>(resolve => {
         geocoder.geocode({ address: job.address }, (results: any, status: any) => {
           if (status === 'OK' && results[0]) {
@@ -83,17 +92,28 @@ export default function JobsPage() {
               map: mapInstanceRef.current,
               position: pos,
               title: job.customer_name,
+              label: {
+                text: jt.emoji,
+                fontSize: '16px',
+              },
               icon: {
                 path: google.maps.SymbolPath.CIRCLE,
-                scale: 9,
-                fillColor: job.status === 'active' ? '#f07a2e' : '#3d5268',
-                fillOpacity: 1,
+                scale: 14,
+                fillColor: job.status === 'active' ? jt.color : '#3d5268',
+                fillOpacity: 0.9,
                 strokeColor: '#fff',
                 strokeWeight: 2,
               },
             });
             const info = new google.maps.InfoWindow({
-              content: `<div style="color:#111;padding:6px;font-family:sans-serif"><strong>${job.customer_name}</strong><br/><span style="font-size:12px;color:#555">${job.address}</span><br/><span style="font-size:11px;color:${job.status === 'active' ? '#3daf76' : '#999'};text-transform:uppercase;font-weight:600">${job.status}</span></div>`,
+              content: `<div style="color:#111;padding:6px;font-family:sans-serif;min-width:160px">
+                <div style="font-weight:700;margin-bottom:2px">${job.customer_name}</div>
+                <div style="font-size:12px;color:#555;margin-bottom:4px">${job.address}</div>
+                <div style="display:flex;gap:6px;align-items:center">
+                  <span style="font-size:11px;background:${jt.color}22;color:${jt.color};padding:2px 8px;border-radius:4px;font-weight:600">${jt.label}</span>
+                  <span style="font-size:11px;color:${job.status === 'active' ? '#3daf76' : '#999'};font-weight:600;text-transform:uppercase">${job.status}</span>
+                </div>
+              </div>`,
             });
             marker.addListener('click', () => info.open(mapInstanceRef.current, marker));
             markersRef.current.push(marker);
@@ -118,8 +138,8 @@ export default function JobsPage() {
   const createJob = async () => {
     if (!customerName.trim()) return;
     setSaving(true);
-    await supabase.from('jobs').insert({ customer_name: customerName, address, notes, status: 'active' });
-    setCustomerName(''); setAddress(''); setNotes('');
+    await supabase.from('jobs').insert({ customer_name: customerName, address, notes, status: 'active', job_type: jobType });
+    setCustomerName(''); setAddress(''); setNotes(''); setJobType('roofing');
     setShowNew(false); setSaving(false); loadJobs();
   };
 
@@ -148,6 +168,9 @@ export default function JobsPage() {
         .modal-overlay { position:fixed; inset:0; background:rgba(0,0,0,0.7); display:flex; align-items:center; justify-content:center; z-index:200; }
         .modal { background:#111820; border:1px solid rgba(255,255,255,0.1); border-radius:14px; padding:28px; max-width:400px; width:90%; }
         .action-btn { padding:7px 14px; border-radius:6px; font-family:'DM Sans',sans-serif; font-size:0.75rem; font-weight:500; cursor:pointer; border:1px solid; white-space:nowrap; }
+        .type-select { width:100%; background:#0b0f14; border:1px solid rgba(255,255,255,0.08); border-radius:8px; padding:10px 14px; color:#e8edf2; font-family:'DM Sans',sans-serif; font-size:0.9rem; outline:none; margin-bottom:10px; cursor:pointer; }
+        .legend-item { display:flex; align-items:center; gap:6px; font-size:0.72rem; color:#7a8fa4; }
+        .legend-dot { width:10px; height:10px; border-radius:50%; flex-shrink:0; }
       `}</style>
 
       {confirmDelete && (
@@ -191,8 +214,18 @@ export default function JobsPage() {
         </div>
 
         {showMap && (
-          <div style={{ marginBottom:'20px', borderRadius:'12px', overflow:'hidden', border:'1px solid rgba(255,255,255,0.08)', height:'320px', background:'#111820' }}>
-            <div ref={mapRef} style={{ width:'100%', height:'100%' }} />
+          <div style={{ marginBottom:'16px' }}>
+            <div style={{ borderRadius:'12px', overflow:'hidden', border:'1px solid rgba(255,255,255,0.08)', height:'320px', background:'#111820', marginBottom:'10px' }}>
+              <div ref={mapRef} style={{ width:'100%', height:'100%' }} />
+            </div>
+            <div style={{ display:'flex', flexWrap:'wrap', gap:'10px', padding:'0 4px' }}>
+              {JOB_TYPES.map(jt => (
+                <div key={jt.value} className="legend-item">
+                  <div className="legend-dot" style={{ background: jt.color }} />
+                  {jt.emoji} {jt.label}
+                </div>
+              ))}
+            </div>
           </div>
         )}
 
@@ -201,6 +234,11 @@ export default function JobsPage() {
             <div style={{ fontFamily:"'Syne', sans-serif", fontWeight:700, marginBottom:'16px' }}>New Job</div>
             <input value={customerName} onChange={e => setCustomerName(e.target.value)} placeholder="Customer name *" style={{ width:'100%', background:'#0b0f14', border:'1px solid rgba(255,255,255,0.08)', borderRadius:'8px', padding:'10px 14px', color:'#e8edf2', fontFamily:"'DM Sans', sans-serif", fontSize:'0.9rem', outline:'none', marginBottom:'10px' }} />
             <input value={address} onChange={e => setAddress(e.target.value)} placeholder="Address (used for GPS auto-brief and map)" style={{ width:'100%', background:'#0b0f14', border:'1px solid rgba(255,255,255,0.08)', borderRadius:'8px', padding:'10px 14px', color:'#e8edf2', fontFamily:"'DM Sans', sans-serif", fontSize:'0.9rem', outline:'none', marginBottom:'10px' }} />
+            <select value={jobType} onChange={e => setJobType(e.target.value)} className="type-select">
+              {JOB_TYPES.map(jt => (
+                <option key={jt.value} value={jt.value}>{jt.emoji} {jt.label}</option>
+              ))}
+            </select>
             <textarea value={notes} onChange={e => setNotes(e.target.value)} placeholder="Notes about this job" rows={3} style={{ width:'100%', background:'#0b0f14', border:'1px solid rgba(255,255,255,0.08)', borderRadius:'8px', padding:'10px 14px', color:'#e8edf2', fontFamily:"'DM Sans', sans-serif", fontSize:'0.9rem', outline:'none', resize:'vertical', marginBottom:'14px' }} />
             <div style={{ display:'flex', gap:'10px' }}>
               <button onClick={createJob} disabled={saving} style={{ background:'#f07a2e', color:'#fff', border:'none', padding:'10px 20px', borderRadius:'8px', fontFamily:"'DM Sans', sans-serif", fontSize:'0.85rem', fontWeight:500, cursor:'pointer' }}>{saving ? 'Saving...' : 'Create Job'}</button>
@@ -217,30 +255,37 @@ export default function JobsPage() {
           </div>
         ) : (
           <div style={{ display:'flex', flexDirection:'column', gap:'10px' }}>
-            {jobs.map(job => (
-              <div key={job.id} style={{ background:'#111820', border:'1px solid rgba(255,255,255,0.08)', borderRadius:'12px', padding:'16px 20px' }}>
-                <div style={{ display:'flex', justifyContent:'space-between', alignItems:'flex-start', gap:'12px' }}>
-                  <div style={{ flex:1 }}>
-                    <div style={{ fontWeight:500, marginBottom:'3px' }}>{job.customer_name}</div>
-                    {job.address && <div style={{ fontSize:'0.82rem', color:'#7a8fa4', fontWeight:300, marginBottom:'3px' }}>{job.address}</div>}
-                    {job.notes && <div style={{ fontSize:'0.75rem', color:'#3d5268', marginTop:'4px' }}>{job.notes}</div>}
-                    <div style={{ fontSize:'0.62rem', color: job.status === 'active' ? '#3daf76' : '#3d5268', marginTop:'6px', textTransform:'uppercase', letterSpacing:'0.08em', fontWeight:600 }}>{job.status}</div>
-                  </div>
-                  <div style={{ display:'flex', gap:'6px', alignItems:'center', flexShrink:0, flexWrap:'wrap', justifyContent:'flex-end' }}>
-                    {job.status === 'active' && (
-                      <Link href={`/dashboard/voice?jobId=${job.id}`} className="action-btn" style={{ background:'rgba(240,122,46,0.1)', borderColor:'rgba(240,122,46,0.2)', color:'#f07a2e', textDecoration:'none', display:'inline-block' }}>Talk to Remy</Link>
-                    )}
-                    {job.status === 'active' && (
-                      <button onClick={() => closeJob(job.id)} className="action-btn" style={{ background:'transparent', borderColor:'rgba(61,175,118,0.2)', color:'#3daf76' }}>Close</button>
-                    )}
-                    {job.status === 'closed' && (
-                      <button onClick={() => reopenJob(job.id)} className="action-btn" style={{ background:'transparent', borderColor:'rgba(240,122,46,0.2)', color:'#f07a2e' }}>Reopen</button>
-                    )}
-                    <button onClick={() => setConfirmDelete(job.id)} className="action-btn" style={{ background:'transparent', borderColor:'rgba(200,74,74,0.2)', color:'#c84a4a' }}>Delete</button>
+            {jobs.map(job => {
+              const jt = getJobType(job.job_type);
+              return (
+                <div key={job.id} style={{ background:'#111820', border:`1px solid ${job.status === 'active' ? jt.color + '33' : 'rgba(255,255,255,0.08)'}`, borderRadius:'12px', padding:'16px 20px' }}>
+                  <div style={{ display:'flex', justifyContent:'space-between', alignItems:'flex-start', gap:'12px' }}>
+                    <div style={{ flex:1 }}>
+                      <div style={{ display:'flex', alignItems:'center', gap:'8px', marginBottom:'3px' }}>
+                        <span style={{ fontSize:'1rem' }}>{jt.emoji}</span>
+                        <div style={{ fontWeight:500 }}>{job.customer_name}</div>
+                        <span style={{ fontSize:'0.62rem', fontWeight:600, color: jt.color, background: jt.color + '22', padding:'2px 8px', borderRadius:'4px' }}>{jt.label}</span>
+                      </div>
+                      {job.address && <div style={{ fontSize:'0.82rem', color:'#7a8fa4', fontWeight:300, marginBottom:'3px' }}>{job.address}</div>}
+                      {job.notes && <div style={{ fontSize:'0.75rem', color:'#3d5268', marginTop:'4px' }}>{job.notes}</div>}
+                      <div style={{ fontSize:'0.62rem', color: job.status === 'active' ? '#3daf76' : '#3d5268', marginTop:'6px', textTransform:'uppercase', letterSpacing:'0.08em', fontWeight:600 }}>{job.status}</div>
+                    </div>
+                    <div style={{ display:'flex', gap:'6px', alignItems:'center', flexShrink:0, flexWrap:'wrap', justifyContent:'flex-end' }}>
+                      {job.status === 'active' && (
+                        <Link href={`/dashboard/voice?jobId=${job.id}`} className="action-btn" style={{ background:'rgba(240,122,46,0.1)', borderColor:'rgba(240,122,46,0.2)', color:'#f07a2e', textDecoration:'none', display:'inline-block' }}>Talk to Remy</Link>
+                      )}
+                      {job.status === 'active' && (
+                        <button onClick={() => closeJob(job.id)} className="action-btn" style={{ background:'transparent', borderColor:'rgba(61,175,118,0.2)', color:'#3daf76' }}>Close</button>
+                      )}
+                      {job.status === 'closed' && (
+                        <button onClick={() => reopenJob(job.id)} className="action-btn" style={{ background:'transparent', borderColor:'rgba(240,122,46,0.2)', color:'#f07a2e' }}>Reopen</button>
+                      )}
+                      <button onClick={() => setConfirmDelete(job.id)} className="action-btn" style={{ background:'transparent', borderColor:'rgba(200,74,74,0.2)', color:'#c84a4a' }}>Delete</button>
+                    </div>
                   </div>
                 </div>
-              </div>
-            ))}
+              );
+            })}
           </div>
         )}
       </div>
