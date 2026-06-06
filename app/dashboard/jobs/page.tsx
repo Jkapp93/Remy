@@ -28,6 +28,10 @@ export default function JobsPage() {
   const [jobType, setJobType] = useState('roofing');
   const [saving, setSaving] = useState(false);
   const [filter, setFilter] = useState<'active' | 'all'>('active');
+  const addressInputRef = useRef<HTMLInputElement>(null);
+  const editAddressInputRef = useRef<HTMLInputElement>(null);
+  const autocompleteRef = useRef<any>(null);
+  const editAutocompleteRef = useRef<any>(null);
   const [confirmDelete, setConfirmDelete] = useState<string | null>(null);
   const [editJob, setEditJob] = useState<{id: string; customer_name: string; address: string; notes: string; status: string; job_type: string} | null>(null);
   const [editName, setEditName] = useState('');
@@ -42,7 +46,31 @@ export default function JobsPage() {
 
   useEffect(() => { if (!isLoaded) return; loadJobs(); }, [isLoaded]);
   useEffect(() => { if (isLoaded) loadJobs(); }, [filter]);
-  useEffect(() => { if (showMap) loadGoogleMaps(); }, [showMap]);
+  useEffect(() => { loadGoogleMaps(); }, []);
+  useEffect(() => { if (showMap && mapInstanceRef.current) plotJobs(); }, [jobs]);
+  useEffect(() => {
+    if (showNew && (window as any).google?.maps?.places && addressInputRef.current) {
+      initAutocomplete(addressInputRef.current, setAddress);
+    }
+  }, [showNew]);
+
+  useEffect(() => {
+    if (editJob && (window as any).google?.maps?.places && editAddressInputRef.current) {
+      initAutocomplete(editAddressInputRef.current, setEditAddress);
+    }
+  }, [editJob]);
+
+  const initAutocomplete = (input: HTMLInputElement, setter: (v: string) => void) => {
+    const google = (window as any).google;
+    const ac = new google.maps.places.Autocomplete(input, {
+      types: ['address'],
+      componentRestrictions: { country: 'us' },
+    });
+    ac.addListener('place_changed', () => {
+      const place = ac.getPlace();
+      if (place.formatted_address) setter(place.formatted_address);
+    });
+  };
   useEffect(() => { if (showMap && mapInstanceRef.current) plotJobs(); }, [jobs, showMap]);
 
   const loadGoogleMaps = () => {
@@ -52,7 +80,7 @@ export default function JobsPage() {
     const existing = document.querySelector('script[data-maps]');
     if (existing) { existing.addEventListener('load', initMap); return; }
     const script = document.createElement('script');
-    script.src = `https://maps.googleapis.com/maps/api/js?key=${key}&libraries=geocoding`;
+    script.src = `https://maps.googleapis.com/maps/api/js?key=${key}&libraries=geocoding,places`;
     script.setAttribute('data-maps', 'true');
     script.onload = initMap;
     document.head.appendChild(script);
@@ -61,8 +89,7 @@ export default function JobsPage() {
   const initMap = () => {
     if (!mapRef.current) return;
     const google = (window as any).google;
-    const map = new google.maps.Map(mapRef.current, {
-      zoom: 9,
+    const map = new google.maps.Map(mapRef.current, {      zoom: 9,
       center: { lat: 26.5, lng: -81.8 },
       styles: [
         { elementType: 'geometry', stylers: [{ color: '#0b0f14' }] },
@@ -222,7 +249,7 @@ export default function JobsPage() {
           <div className="modal" style={{ maxWidth:'480px' }} onClick={e => e.stopPropagation()}>
             <div style={{ fontFamily:"'Syne',sans-serif", fontWeight:800, fontSize:'1.1rem', marginBottom:'16px' }}>Edit Job</div>
             <input value={editName} onChange={e => setEditName(e.target.value)} placeholder="Customer name *" style={{ width:'100%', background:'#0b0f14', border:'1px solid rgba(255,255,255,0.08)', borderRadius:'8px', padding:'10px 14px', color:'#e8edf2', fontFamily:"'DM Sans',sans-serif", fontSize:'0.9rem', outline:'none', marginBottom:'10px' }} />
-            <input value={editAddress} onChange={e => setEditAddress(e.target.value)} placeholder="Address" style={{ width:'100%', background:'#0b0f14', border:'1px solid rgba(255,255,255,0.08)', borderRadius:'8px', padding:'10px 14px', color:'#e8edf2', fontFamily:"'DM Sans',sans-serif", fontSize:'0.9rem', outline:'none', marginBottom:'10px' }} />
+            <input value={editAddress} ref={editAddressInputRef} onChange={e => setEditAddress(e.target.value)} placeholder="Address" style={{ width:'100%', background:'#0b0f14', border:'1px solid rgba(255,255,255,0.08)', borderRadius:'8px', padding:'10px 14px', color:'#e8edf2', fontFamily:"'DM Sans',sans-serif", fontSize:'0.9rem', outline:'none', marginBottom:'10px' }} />
             <select value={editType} onChange={e => setEditType(e.target.value)} className="type-select">
               {JOB_TYPES.map(jt => (
                 <option key={jt.value} value={jt.value}>{jt.label}</option>
@@ -284,7 +311,7 @@ export default function JobsPage() {
           <div style={{ background:'#111820', border:'1px solid rgba(255,255,255,0.08)', borderRadius:'12px', padding:'24px', marginBottom:'20px' }}>
             <div style={{ fontFamily:"'Syne', sans-serif", fontWeight:700, marginBottom:'16px' }}>New Job</div>
             <input value={customerName} onChange={e => setCustomerName(e.target.value)} placeholder="Customer name *" style={{ width:'100%', background:'#0b0f14', border:'1px solid rgba(255,255,255,0.08)', borderRadius:'8px', padding:'10px 14px', color:'#e8edf2', fontFamily:"'DM Sans', sans-serif", fontSize:'0.9rem', outline:'none', marginBottom:'10px' }} />
-            <input value={address} onChange={e => setAddress(e.target.value)} placeholder="Address (used for GPS auto-brief and map)" style={{ width:'100%', background:'#0b0f14', border:'1px solid rgba(255,255,255,0.08)', borderRadius:'8px', padding:'10px 14px', color:'#e8edf2', fontFamily:"'DM Sans', sans-serif", fontSize:'0.9rem', outline:'none', marginBottom:'10px' }} />
+            <input value={address} ref={addressInputRef} onChange={e => setAddress(e.target.value)} placeholder="Address (used for GPS auto-brief and map)" style={{ width:'100%', background:'#0b0f14', border:'1px solid rgba(255,255,255,0.08)', borderRadius:'8px', padding:'10px 14px', color:'#e8edf2', fontFamily:"'DM Sans', sans-serif", fontSize:'0.9rem', outline:'none', marginBottom:'10px' }} />
             <select value={jobType} onChange={e => setJobType(e.target.value)} className="type-select">
               {JOB_TYPES.map(jt => (
                 <option key={jt.value} value={jt.value}>{jt.label}</option>
