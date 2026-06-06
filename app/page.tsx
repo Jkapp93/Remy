@@ -29,10 +29,10 @@ export default function LandingPage() {
       {/* Hero */}
       <div className="hero-grad" style={{ padding:'100px 40px 80px', textAlign:'center', maxWidth:'900px', margin:'0 auto' }}>
         <div style={{ display:'inline-block', background:'rgba(240,122,46,0.1)', border:'1px solid rgba(240,122,46,0.25)', borderRadius:'100px', padding:'6px 16px', fontSize:'0.78rem', fontWeight:600, letterSpacing:'0.1em', textTransform:'uppercase', color:'#f07a2e', marginBottom:'28px' }}>
-          AI Field Companion for Home Services
+          AI Co-Pilot for Home Services Reps
         </div>
-        <h1 style={{ fontFamily:"'Syne',sans-serif", fontSize:'clamp(2.5rem, 6vw, 4.5rem)', fontWeight:900, lineHeight:1.05, marginBottom:'24px', letterSpacing:'-0.02em' }}>
-          Your best rep just got<br />an <span style={{ color:'#f07a2e' }}>AI co-pilot.</span>
+        <h1 style={{ fontFamily:"'Syne',sans-serif", fontSize:'clamp(2.2rem, 5vw, 4rem)', fontWeight:900, lineHeight:1.1, marginBottom:'24px', letterSpacing:'-0.02em' }}>
+          The AI co-pilot built for<br /><span style={{ color:'#f07a2e' }}>home services reps.</span>
         </h1>
         <p style={{ fontSize:'1.15rem', color:'#7a8fa4', fontWeight:300, lineHeight:1.7, marginBottom:'40px', maxWidth:'600px', margin:'0 auto 40px' }}>
           Remy rides along with your field reps. Pre-job briefs, live objection coaching, weather intel, and proactive suggestions. All hands-free, all voice-first.
@@ -84,7 +84,7 @@ export default function LandingPage() {
       <div style={{ maxWidth:'700px', margin:'0 auto', padding:'0 40px 80px' }}>
         <div className="quote-card">
           <div style={{ fontSize:'1.2rem', lineHeight:1.7, color:'#e8edf2', fontWeight:300, marginBottom:'20px' }}>
-            I pulled up to a roofing job and before I even got out of the truck, Remy told me there was a storm coming Thursday and gave me the exact line to use at the door. Signed the deal in 20 minutes.
+            "I pulled up to a roofing job and before I even got out of the truck, Remy told me there was a storm coming Thursday and gave me the exact line to use at the door. Signed the deal in 20 minutes."
           </div>
           <div style={{ fontSize:'0.82rem', color:'#3d5268' }}>Field rep, residential roofing â€” South Florida</div>
         </div>
