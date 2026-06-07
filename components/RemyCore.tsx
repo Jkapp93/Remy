@@ -221,12 +221,12 @@ export default function RemyCore() {
       cx.clearRect(0,0,w,h);cx.fillStyle='#010407';cx.fillRect(0,0,w,h);
       STARS.forEach((s:any)=>{s.t+=s.sp;cx.save();cx.globalAlpha=s.a*(0.4+0.6*Math.sin(s.t));cx.fillStyle='#fff';cx.beginPath();cx.arc(s.x*(w/960),s.y*(h/600),s.s,0,Math.PI*2);cx.fill();cx.restore();});
       const shimmerAngle=t*0.38;
-      ring(x,y,170,0.6,SILVER,0.3);
-      ring(x,y,220,0.5,ORANGE,0.15);
-      ring(x,y,276,0.5,CYAN,0.12);
-      L3.forEach(n=>layerNode(x,y,n,276,0.1,20,shimmerAngle));
-      L2.forEach(n=>layerNode(x,y,n,220,0.06,19,shimmerAngle));
-      L1.forEach(n=>layerNode(x,y,n,170,0.03,18,shimmerAngle));
+      ring(x,y,200,0.6,SILVER,0.3);
+      ring(x,y,248,0.5,ORANGE,0.15);
+      ring(x,y,300,0.5,CYAN,0.12);
+      L3.forEach(n=>layerNode(x,y,n,300,0.1,20,shimmerAngle));
+      L2.forEach(n=>layerNode(x,y,n,248,0.06,19,shimmerAngle));
+      L1.forEach(n=>layerNode(x,y,n,200,0.03,18,shimmerAngle));
       drawCore(x,y);
       drawShimmer(x,y,shimmerAngle);
       [{col:SILVER,label:'BUSINESS FOUNDATION'},{col:ORANGE,label:'FIELD OPS'},{col:CYAN,label:'LIVE WORLD DATA'}].forEach((item,i)=>{
