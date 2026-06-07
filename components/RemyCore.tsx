@@ -1,8 +1,10 @@
 ﻿'use client';
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useState } from 'react';
 
 export default function RemyCore() {
   const canvasRef = useRef<HTMLCanvasElement>(null);
+  const [mounted, setMounted] = useState(false);
+  useEffect(() => setMounted(true), []);
 
   useEffect(() => {
     const cv = canvasRef.current;
@@ -250,6 +252,7 @@ export default function RemyCore() {
     };
   }, []);
 
+  if (!mounted) return null;
   return (
     <canvas
       ref={canvasRef}
