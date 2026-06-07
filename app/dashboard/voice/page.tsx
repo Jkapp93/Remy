@@ -1,356 +1,310 @@
 ﻿'use client';
-import { useState, useEffect, useRef, Suspense } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useUser } from '@clerk/nextjs';
-import { useSearchParams, useRouter } from 'next/navigation';
-import { supabase } from '../../../lib/supabase';
-import { useProfile } from '../../../lib/useProfile';
 import Link from 'next/link';
 
-const JOB_TYPE_COLORS: Record<string, string> = {
+const VOICES: Record<string, string> = {
+  'Remy': 'f786b574-daa5-4673-aa0c-cbe3e8534c02',
+  'Parker': '30894953-bcce-41fe-892c-15ce19c843ff',
+  'Thandi': '692846ad-1a6b-49b8-bfc5-86421fd41a19',
+  'Ruby': 'ed9ccfa4-8fa1-40f8-bfb2-cb7d67d2f9cd',
+  'Archie': 'ef191366-f52f-447a-a398-ed8c0f2943a1',
+  'Joey': '34575e71-908f-4ab6-ab54-b08c95d6597d',
+};
+
+type Job = { id: string; customer_name: string; address: string; job_type: string; status: string; notes?: string };
+type Message = { role: 'user' | 'assistant'; content: string };
+
+const JOB_COLORS: Record<string, string> = {
   roofing: '#f07a2e', fencing: '#4a9fd4', hvac: '#3daf76',
   painting: '#9b59b6', plumbing: '#e74c3c', solar: '#f1c40f',
   restoration: '#e67e22', other: '#7a8fa4',
 };
 
-type Message = { role: 'user' | 'assistant'; content: string };
-type Job = { id: string; customer_name: string; address: string; notes: string; status: string; job_type: string };
-
-function VoicePageInner() {
+export default function VoicePage() {
   const { user, isLoaded } = useUser();
-  const { profile } = useProfile();
-  const searchParams = useSearchParams();
-  const router = useRouter();
+  const [jobs, setJobs] = useState<Job[]>([]);
+  const [currentJob, setCurrentJob] = useState<Job | null>(null);
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState('');
   const [loading, setLoading] = useState(false);
   const [speaking, setSpeaking] = useState(false);
-  const [listening, setListening] = useState(false);
-  const [jobs, setJobs] = useState<Job[]>([]);
-  const [activeJob, setActiveJob] = useState<Job | null>(null);
-  const [doctrine, setDoctrine] = useState('');
-  const [memories, setMemories] = useState<{content: string}[]>([]);
-  const [showJobPicker, setShowJobPicker] = useState(false);
-  const audioRef = useRef<HTMLAudioElement | null>(null);
-  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
+  const [recording, setRecording] = useState(false);
+  const [voiceId, setVoiceId] = useState(VOICES['Remy']);
+  const [showJobs, setShowJobs] = useState(false);
+  const [remaining, setRemaining] = useState<number | null>(null);
+  const mediaRef = useRef<MediaRecorder | null>(null);
   const chunksRef = useRef<Blob[]>([]);
-  const scrollRef = useRef<HTMLDivElement>(null);
-  const sessionMessagesRef = useRef<Message[]>([]);
-
-  const accentColor = activeJob ? (JOB_TYPE_COLORS[activeJob.job_type] || '#f07a2e') : '#f07a2e';
+  const audioRef = useRef<HTMLAudioElement | null>(null);
+  const messagesEndRef = useRef<HTMLDivElement>(null);
+  const inputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     if (!isLoaded || !user) return;
-    initPage();
-  }, [isLoaded, user, profile]);
+    loadJobs();
+    const saved = localStorage.getItem('remy_voice');
+    if (saved) setVoiceId(saved);
+    checkLimit();
+  }, [isLoaded, user]);
 
   useEffect(() => {
-    scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: 'smooth' });
+    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages]);
 
-  const initPage = async () => {
-    const clerkId = user!.id;
-    const companyId = profile?.company_id;
-
-    const [jobData, docData, memData] = await Promise.all([
-      supabase.from('jobs').select('*').eq('status', 'active').order('created_at', { ascending: false }).then(r => r.data || []),
-      fetch(`/api/doctrine-list?clerkId=${clerkId}`).then(r => r.json()).catch(() => ({ doctrine: '' })),
-      fetch(`/api/memory?repId=${clerkId}`).then(r => r.json()).catch(() => ({ memories: [] })),
-    ]);
-
-    const allJobs = companyId 
-      ? jobData.filter((j: Job) => (j as any).company_id === companyId)
-      : jobData;
-
-    setJobs(allJobs);
-    setDoctrine(docData.doctrine || '');
-    setMemories(memData.memories || []);
-
-    const jobId = searchParams.get('jobId');
-    if (jobId && allJobs.length > 0) {
-      const found = allJobs.find((j: Job) => j.id === jobId);
-      if (found) {
-        setActiveJob(found);
-        setMessages([{ role: 'assistant', content: `${found.customer_name} loaded. Tap Brief Me when you are ready.` }]);
-        return;
-      }
-    }
-
-    if (allJobs.length > 0) {
-      setMessages([{ role: 'assistant', content: `Hey. ${allJobs.length} active job${allJobs.length > 1 ? 's' : ''} today. Select a job and tap Brief Me, or tap Brief My Day to get started.` }]);
-    } else {
-      setMessages([{ role: 'assistant', content: `Hey. No active jobs yet. Create one in Jobs and I will brief you before you knock.` }]);
-    }
+  const loadJobs = async () => {
+    const res = await fetch('/api/jobs');
+    const data = await res.json();
+    setJobs((data.jobs || []).filter((j: Job) => j.status === 'active'));
   };
 
-  const doSend = async (text: string, currentMessages: Message[], currentDoctrine: string, currentJob: Job | null, currentMemories: {content: string}[]) => {
-    const jobContext = currentJob
-      ? `Customer: ${currentJob.customer_name}\nAddress: ${currentJob.address || 'Not provided'}\nNotes: ${currentJob.notes || 'None'}\nJob type: ${currentJob.job_type || 'General'}`
-      : '';
-    const newMessages: Message[] = [...currentMessages, { role: 'user', content: text }];
-    setMessages(newMessages);
-    sessionMessagesRef.current = newMessages;
-    setInput('');
-    setLoading(true);
-    try {
-      const res = await fetch('/api/chat', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ messages: newMessages, doctrine: currentDoctrine, jobContext, memories: currentMemories, repId: user?.id, jobId: currentJob?.id }),
-      });
-      const data = await res.json();
-      const reply = data.message || 'Something went wrong.';
-      const updated: Message[] = [...newMessages, { role: 'assistant', content: reply }];
-      setMessages(updated);
-      sessionMessagesRef.current = updated;
-      await speak(reply);
-      // Save conversation after each exchange
-      if (user) {
-        fetch('/api/conversations', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            jobId: currentJob?.id,
-            repId: user.id,
-            messages: updated,
-            summary: reply.slice(0, 200),
-          }),
-        }).catch(() => {});
-      }
-    } catch {
-      setMessages(prev => [...prev, { role: 'assistant', content: 'Connection issue. Try again.' }]);
-    }
-    setLoading(false);
+  const checkLimit = async () => {
+    if (!user) return;
+    const res = await fetch(`/api/rate-limit?repId=${user.id}`);
+    const data = await res.json();
+    setRemaining(data.remaining);
   };
 
   const speak = async (text: string) => {
+    setSpeaking(true);
     try {
-      if (audioRef.current) { audioRef.current.pause(); audioRef.current = null; }
-      setSpeaking(true);
-      const savedVoice = typeof window !== 'undefined' ? localStorage.getItem('remy_voice') || undefined : undefined;
       const res = await fetch('/api/voice', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ text, voiceId: savedVoice }),
+        body: JSON.stringify({ text, voiceId }),
       });
-      if (!res.ok) { setSpeaking(false); return; }
       const blob = await res.blob();
       const url = URL.createObjectURL(blob);
       const audio = new Audio(url);
       audioRef.current = audio;
-      audio.onended = () => { setSpeaking(false); URL.revokeObjectURL(url); audioRef.current = null; };
-      audio.onerror = () => { setSpeaking(false); audioRef.current = null; };
+      audio.onended = () => { setSpeaking(false); URL.revokeObjectURL(url); };
+      audio.onerror = () => setSpeaking(false);
       await audio.play();
     } catch { setSpeaking(false); }
   };
 
-  const stopSpeaking = () => {
-    if (audioRef.current) { audioRef.current.pause(); audioRef.current = null; }
-    setSpeaking(false);
-  };
-
-  const startListening = async () => {
-    try {
-      if (speaking) stopSpeaking();
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      const mr = new MediaRecorder(stream);
-      chunksRef.current = [];
-      mr.ondataavailable = e => { if (e.data.size > 0) chunksRef.current.push(e.data); };
-      mr.onstop = async () => {
-        stream.getTracks().forEach(t => t.stop());
-        const blob = new Blob(chunksRef.current, { type: 'audio/webm' });
-        await transcribe(blob);
-      };
-      mr.start();
-      mediaRecorderRef.current = mr;
-      setListening(true);
-      setTimeout(() => { if (mediaRecorderRef.current?.state === 'recording') stopListening(); }, 8000);
-    } catch { alert('Microphone access needed.'); }
-  };
-
-  const stopListening = () => {
-    if (mediaRecorderRef.current?.state === 'recording') mediaRecorderRef.current.stop();
-    mediaRecorderRef.current = null;
-    setListening(false);
-  };
-
-  const transcribe = async (blob: Blob) => {
+  const sendMessage = async (text: string) => {
+    if (!text.trim() || loading || !user) return;
+    if (remaining !== null && remaining <= 0) {
+      setMessages(prev => [...prev, { role: 'assistant', content: 'Daily limit reached. Upgrade your plan for more messages.' }]);
+      return;
+    }
+    const newMessages: Message[] = [...messages, { role: 'user', content: text }];
+    setMessages(newMessages);
+    setInput('');
     setLoading(true);
-    try {
-      const form = new FormData();
-      form.append('audio', blob, 'recording.webm');
-      const res = await fetch('/api/transcribe', { method: 'POST', body: form });
-      const data = await res.json();
-      if (data.text?.trim()) await doSend(data.text, messages, doctrine, activeJob, memories);
-      else setLoading(false);
-    } catch { setLoading(false); }
-  };
 
-  const saveSession = async () => {
-    if (!user || sessionMessagesRef.current.length < 2) return;
+    const jobContext = currentJob
+      ? `Customer: ${currentJob.customer_name}\nAddress: ${currentJob.address}\nJob Type: ${currentJob.job_type}\nNotes: ${currentJob.notes || 'None'}`
+      : null;
+
     try {
-      await fetch('/api/memory', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ messages: sessionMessagesRef.current, repId: user.id, jobContext: activeJob?.customer_name }),
-      });
-      await fetch('/api/conversations', {
+      const [docRes, memRes] = await Promise.all([
+        fetch('/api/doctrine-list'),
+        fetch(`/api/memory?repId=${user.id}`),
+      ]);
+      const docData = await docRes.json();
+      const memData = await memRes.json();
+      const doctrine = (docData.doctrine || []).map((d: any) => d.content).join('\n');
+      const memories = memData.memories || [];
+
+      const res = await fetch('/api/chat', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          jobId: activeJob?.id,
+          messages: newMessages,
+          doctrine,
+          jobContext,
+          memories,
           repId: user.id,
-          messages: sessionMessagesRef.current,
-          summary: sessionMessagesRef.current.find(m => m.role === 'assistant')?.content?.slice(0, 200),
+          jobId: currentJob?.id,
         }),
       });
-    } catch {}
+      const data = await res.json();
+      const reply = data.message || 'Something went wrong.';
+      setMessages(prev => [...prev, { role: 'assistant', content: reply }]);
+      setRemaining(prev => prev !== null ? Math.max(0, prev - 1) : null);
+
+      // Save conversation
+      fetch('/api/conversations', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ repId: user.id, jobId: currentJob?.id, summary: reply.slice(0, 200) }),
+      }).catch(() => {});
+
+      await speak(reply);
+    } catch { setLoading(false); }
+    setLoading(false);
   };
 
-  useEffect(() => {
-    window.addEventListener('beforeunload', saveSession);
-    return () => { window.removeEventListener('beforeunload', saveSession); saveSession(); };
-  }, []);
-
-  const briefJob = () => {
-    if (!activeJob) return;
-    doSend(
-      `Brief me fast. Pulling up to ${activeJob.customer_name}${activeJob.address ? ` at ${activeJob.address}` : ''}${activeJob.notes ? `. Notes: ${activeJob.notes}` : ''}.`,
-      messages, doctrine, activeJob, memories
-    );
+  const briefMe = async () => {
+    if (!currentJob) return;
+    await sendMessage(`Brief me on ${currentJob.customer_name} at ${currentJob.address}. Job type: ${currentJob.job_type}.`);
   };
 
-  const briefDay = () => {
-    const jobList = jobs.slice(0, 5).map(j => `${j.customer_name}${j.address ? ` at ${j.address}` : ''}`).join(', ');
-    doSend(`Give me a quick morning brief. I have ${jobs.length} active jobs today: ${jobList}. What should I know to start the day strong?`, messages, doctrine, null, memories);
+  const briefDay = async () => {
+    await sendMessage(`Brief my day. I have ${jobs.length} active jobs. Give me a sharp overview of what to focus on today.`);
   };
+
+  const startRecording = async () => {
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      const mr = new MediaRecorder(stream);
+      mediaRef.current = mr;
+      chunksRef.current = [];
+      mr.ondataavailable = e => chunksRef.current.push(e.data);
+      mr.onstop = async () => {
+        stream.getTracks().forEach(t => t.stop());
+        const blob = new Blob(chunksRef.current, { type: 'audio/webm' });
+        const fd = new FormData();
+        fd.append('audio', blob, 'audio.webm');
+        const res = await fetch('/api/transcribe', { method: 'POST', body: fd });
+        const data = await res.json();
+        if (data.text?.trim()) await sendMessage(data.text);
+      };
+      mr.start();
+      setRecording(true);
+      setTimeout(() => { if (mr.state === 'recording') { mr.stop(); setRecording(false); } }, 8000);
+    } catch { setRecording(false); }
+  };
+
+  const stopRecording = () => {
+    if (mediaRef.current?.state === 'recording') { mediaRef.current.stop(); setRecording(false); }
+  };
+
+  const stopSpeaking = () => { audioRef.current?.pause(); setSpeaking(false); };
+
+  const jobColor = currentJob ? (JOB_COLORS[currentJob.job_type] || '#7a8fa4') : '#f07a2e';
 
   return (
-    <div style={{ background: '#0b0f14', height: '100vh', display: 'flex', flexDirection: 'column', color: '#e8edf2', fontFamily: "'DM Sans', sans-serif", overflow: 'hidden' }}>
+    <div style={{ background: '#0b0f14', minHeight: '100vh', color: '#e8edf2', fontFamily: "'DM Sans', sans-serif", display: 'flex', flexDirection: 'column', maxWidth: '100vw', overflow: 'hidden' }}>
       <style>{`
         @import url('https://fonts.googleapis.com/css2?family=Syne:wght@700;800&family=DM+Sans:wght@300;400;500&display=swap');
-        * { box-sizing:border-box; margin:0; padding:0; }
-        .job-picker { position:absolute; top:100%; left:0; right:0; background:#111820; border:1px solid rgba(255,255,255,0.1); border-radius:12px; margin-top:8px; overflow:hidden; z-index:200; box-shadow:0 20px 40px rgba(0,0,0,0.4); }
-        .job-option { padding:12px 16px; cursor:pointer; border-bottom:1px solid rgba(255,255,255,0.05); display:flex; align-items:center; gap:10px; }
-        .job-option:hover { background:rgba(255,255,255,0.03); }
-        .job-option:last-child { border-bottom:none; }
-        .mic-btn { width:56px; height:56px; border-radius:50%; border:none; cursor:pointer; display:flex; align-items:center; justify-content:center; font-family:'DM Sans',sans-serif; font-weight:600; font-size:0.75rem; transition:all 0.2s; flex-shrink:0; }
-        @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.5} }
-        .pulsing { animation: pulse 1s infinite; }
+        * { box-sizing: border-box; margin: 0; padding: 0; -webkit-tap-highlight-color: transparent; }
+        body { overscroll-behavior: none; }
+        .msg-user { background: rgba(240,122,46,0.1); border: 1px solid rgba(240,122,46,0.15); border-radius: 16px 16px 4px 16px; padding: 12px 16px; align-self: flex-end; max-width: 80%; }
+        .msg-remy { background: #111820; border: 1px solid rgba(255,255,255,0.07); border-radius: 16px 16px 16px 4px; padding: 12px 16px; align-self: flex-start; max-width: 85%; }
+        .job-pill { display: flex; align-items: center; gap: 8px; background: #111820; border: 1px solid rgba(255,255,255,0.08); border-radius: 10px; padding: 10px 14px; cursor: pointer; transition: border-color 0.2s; }
+        .job-pill:active { opacity: 0.7; }
+        .action-btn { border: none; border-radius: 12px; padding: 14px 20px; font-family: 'DM Sans', sans-serif; font-size: 0.88rem; font-weight: 600; cursor: pointer; transition: opacity 0.15s; flex: 1; }
+        .action-btn:active { opacity: 0.7; }
+        .mic-btn { width: 64px; height: 64px; border-radius: 50%; border: none; cursor: pointer; display: flex; align-items: center; justify-content: center; font-size: 1.5rem; transition: transform 0.1s; flex-shrink: 0; }
+        .mic-btn:active { transform: scale(0.92); }
+        .job-item { display: flex; align-items: center; gap: 12px; padding: 14px 16px; border-bottom: 1px solid rgba(255,255,255,0.05); cursor: pointer; transition: background 0.15s; }
+        .job-item:active { background: rgba(255,255,255,0.03); }
+        input:focus { outline: none; }
       `}</style>
 
       {/* Header */}
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '14px 20px', borderBottom: `1px solid ${accentColor}22`, background: 'rgba(11,15,20,0.98)', position: 'relative', flexShrink: 0 }}>
-        <Link href="/dashboard" style={{ fontFamily: "'Syne',sans-serif", fontSize: '1.1rem', fontWeight: 800, textDecoration: 'none', color: '#e8edf2' }}>
-          Remy<span style={{ color: accentColor }}>.</span>
+      <div style={{ padding: '16px 20px', borderBottom: '1px solid rgba(255,255,255,0.07)', display: 'flex', alignItems: 'center', justifyContent: 'space-between', background: 'rgba(11,15,20,0.98)', position: 'sticky', top: 0, zIndex: 50 }}>
+        <Link href="/dashboard" style={{ fontFamily: "'Syne',sans-serif", fontWeight: 800, fontSize: '1.2rem', textDecoration: 'none', color: '#e8edf2' }}>
+          Remy<span style={{ color: '#f07a2e' }}>.</span>
         </Link>
+        {remaining !== null && (
+          <div style={{ fontSize: '0.72rem', color: '#3d5268', fontWeight: 300 }}>{remaining} msgs left today</div>
+        )}
+      </div>
 
-        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', position: 'relative' }}>
-          {speaking && (
-            <button onClick={stopSpeaking} style={{ padding: '6px 12px', borderRadius: '20px', border: `1px solid ${accentColor}44`, background: `${accentColor}11`, color: accentColor, fontFamily: "'DM Sans',sans-serif", fontSize: '0.7rem', fontWeight: 600, cursor: 'pointer' }}>
-              Stop
-            </button>
-          )}
-          {!speaking && !listening && activeJob && (
-            <button onClick={briefJob} style={{ padding: '6px 14px', borderRadius: '20px', border: `1px solid ${accentColor}44`, background: `${accentColor}11`, color: accentColor, fontFamily: "'DM Sans',sans-serif", fontSize: '0.72rem', fontWeight: 600, cursor: 'pointer', whiteSpace: 'nowrap' }}>
-              Brief Me
-            </button>
-          )}
-          {!speaking && !listening && !activeJob && jobs.length > 0 && (
-            <button onClick={briefDay} style={{ padding: '6px 14px', borderRadius: '20px', border: '1px solid rgba(61,175,118,0.3)', background: 'rgba(61,175,118,0.08)', color: '#3daf76', fontFamily: "'DM Sans',sans-serif", fontSize: '0.72rem', fontWeight: 600, cursor: 'pointer', whiteSpace: 'nowrap' }}>
-              Brief My Day
-            </button>
-          )}
-          <div onClick={() => setShowJobPicker(!showJobPicker)} style={{ display: 'flex', alignItems: 'center', gap: '6px', background: activeJob ? `${accentColor}11` : 'rgba(255,255,255,0.04)', border: `1px solid ${activeJob ? accentColor + '33' : 'rgba(255,255,255,0.08)'}`, borderRadius: '100px', padding: '6px 12px', cursor: 'pointer', maxWidth: '140px' }}>
-            {activeJob && <div style={{ width: '7px', height: '7px', borderRadius: '50%', background: accentColor, flexShrink: 0 }} />}
-            <span style={{ fontSize: '0.72rem', color: activeJob ? accentColor : '#7a8fa4', fontWeight: 500, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-              {activeJob ? activeJob.customer_name : '+ Job'}
-            </span>
+      {/* Job Selector */}
+      <div style={{ padding: '12px 16px', borderBottom: '1px solid rgba(255,255,255,0.06)' }}>
+        <div className="job-pill" onClick={() => setShowJobs(true)} style={{ borderColor: currentJob ? jobColor + '44' : 'rgba(255,255,255,0.08)' }}>
+          <div style={{ width: 8, height: 8, borderRadius: '50%', background: currentJob ? jobColor : '#3d5268', flexShrink: 0 }} />
+          <div style={{ flex: 1 }}>
+            <div style={{ fontSize: '0.88rem', fontWeight: 500 }}>{currentJob ? currentJob.customer_name : 'Select a job'}</div>
+            {currentJob && <div style={{ fontSize: '0.72rem', color: '#3d5268', marginTop: '1px' }}>{currentJob.address}</div>}
           </div>
-          <Link href="/dashboard" style={{ fontSize: '0.78rem', color: '#3d5268', textDecoration: 'none' }}>Back</Link>
+          <div style={{ fontSize: '0.72rem', color: '#3d5268' }}>â–¼</div>
+        </div>
 
-          {showJobPicker && (
-            <div className="job-picker" style={{ width: '280px', right: 0, left: 'auto' }}>
-              {activeJob && (
-                <div className="job-option" onClick={() => { setActiveJob(null); setShowJobPicker(false); }} style={{ color: '#c84a4a', fontSize: '0.82rem' }}>
-                  Clear job
-                </div>
-              )}
-              {jobs.map(job => {
-                const color = JOB_TYPE_COLORS[job.job_type] || '#f07a2e';
-                return (
-                  <div key={job.id} className="job-option" onClick={() => { setActiveJob(job); setShowJobPicker(false); setMessages(prev => [...prev, { role: 'assistant', content: `${job.customer_name} loaded. Tap Brief Me when ready.` }]); }}>
-                    <div style={{ width: '8px', height: '8px', borderRadius: '50%', background: color, flexShrink: 0 }} />
-                    <div style={{ flex: 1 }}>
-                      <div style={{ fontSize: '0.88rem', fontWeight: 500, color: '#e8edf2' }}>{job.customer_name}</div>
-                      {job.address && <div style={{ fontSize: '0.72rem', color: '#3d5268', marginTop: '2px' }}>{job.address}</div>}
-                    </div>
-                    <span style={{ fontSize: '0.62rem', color, fontWeight: 600, textTransform: 'uppercase' }}>{job.job_type}</span>
-                  </div>
-                );
-              })}
-              {jobs.length === 0 && <div style={{ padding: '16px', color: '#3d5268', fontSize: '0.82rem' }}>No active jobs.</div>}
-            </div>
-          )}
+        {/* Brief buttons */}
+        <div style={{ display: 'flex', gap: '8px', marginTop: '10px' }}>
+          <button className="action-btn" onClick={briefMe} disabled={!currentJob || loading} style={{ background: currentJob ? jobColor : 'rgba(255,255,255,0.05)', color: currentJob ? '#fff' : '#3d5268', opacity: !currentJob || loading ? 0.5 : 1 }}>
+            Brief Me
+          </button>
+          <button className="action-btn" onClick={briefDay} disabled={loading} style={{ background: 'rgba(255,255,255,0.06)', color: '#e8edf2', opacity: loading ? 0.5 : 1 }}>
+            Brief My Day
+          </button>
         </div>
       </div>
 
       {/* Messages */}
-      <div ref={scrollRef} style={{ flex: 1, overflowY: 'auto', padding: '20px', display: 'flex', flexDirection: 'column', gap: '12px' }}>
+      <div style={{ flex: 1, overflowY: 'auto', padding: '16px', display: 'flex', flexDirection: 'column', gap: '12px', WebkitOverflowScrolling: 'touch' }}>
+        {messages.length === 0 && (
+          <div style={{ textAlign: 'center', color: '#2d3f52', fontSize: '0.85rem', fontWeight: 300, marginTop: '40px', lineHeight: 1.8 }}>
+            <div style={{ fontSize: '1.5rem', marginBottom: '12px' }}>ðŸ‘‹</div>
+            {currentJob ? `Select Brief Me to get prepped for ${currentJob.customer_name}.` : 'Select a job or tap Brief My Day to get started.'}
+          </div>
+        )}
         {messages.map((m, i) => (
-          <div key={i} style={{ display: 'flex', justifyContent: m.role === 'user' ? 'flex-end' : 'flex-start', alignItems: 'flex-end', gap: '8px' }}>
-            {m.role === 'assistant' && (
-              <div style={{ width: '28px', height: '28px', borderRadius: '50%', background: `${accentColor}15`, border: `1px solid ${accentColor}33`, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '0.7rem', fontWeight: 700, color: accentColor, flexShrink: 0 }}>R</div>
-            )}
-            <div style={{ maxWidth: '78%', padding: '12px 16px', borderRadius: m.role === 'user' ? '18px 18px 4px 18px' : '18px 18px 18px 4px', background: m.role === 'user' ? '#1a2535' : `${accentColor}08`, border: `1px solid ${m.role === 'user' ? 'rgba(255,255,255,0.05)' : accentColor + '18'}`, fontSize: '0.92rem', lineHeight: 1.6, color: m.role === 'user' ? '#8a9db5' : '#e8edf2', fontWeight: 300 }}>
-              {m.content}
-            </div>
+          <div key={i} className={m.role === 'user' ? 'msg-user' : 'msg-remy'}>
+            <div style={{ fontSize: '0.88rem', lineHeight: 1.6, fontWeight: 300 }}>{m.content}</div>
           </div>
         ))}
         {loading && (
-          <div style={{ display: 'flex', alignItems: 'flex-end', gap: '8px' }}>
-            <div style={{ width: '28px', height: '28px', borderRadius: '50%', background: `${accentColor}15`, border: `1px solid ${accentColor}33`, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '0.7rem', fontWeight: 700, color: accentColor }}>R</div>
-            <div style={{ padding: '12px 16px', borderRadius: '18px 18px 18px 4px', background: `${accentColor}08`, border: `1px solid ${accentColor}18` }}>
-              <div style={{ display: 'flex', gap: '4px', alignItems: 'center' }}>
-                {[0, 1, 2].map(i => <div key={i} className="pulsing" style={{ width: '6px', height: '6px', borderRadius: '50%', background: accentColor, animationDelay: `${i * 0.2}s` }} />)}
-              </div>
+          <div className="msg-remy">
+            <div style={{ display: 'flex', gap: '4px', alignItems: 'center', padding: '4px 0' }}>
+              {[0,1,2].map(i => <div key={i} style={{ width: 6, height: 6, borderRadius: '50%', background: '#f07a2e', animation: `pulse 1s ease-in-out ${i*0.2}s infinite alternate` }} />)}
             </div>
           </div>
         )}
+        <div ref={messagesEndRef} />
       </div>
 
       {/* Input */}
-      <div style={{ padding: '12px 16px', borderTop: `1px solid ${accentColor}15`, background: 'rgba(11,15,20,0.98)', display: 'flex', gap: '10px', alignItems: 'center', flexShrink: 0 }}>
-        <button
-          className="mic-btn"
-          onClick={listening ? stopListening : startListening}
-          style={{ background: listening ? accentColor : `${accentColor}12`, border: `1.5px solid ${listening ? accentColor : accentColor + '33'}`, color: listening ? '#fff' : accentColor }}
-        >
-          {listening ? 'Done' : 'Mic'}
-        </button>
+      <div style={{ padding: '12px 16px', borderTop: '1px solid rgba(255,255,255,0.07)', background: 'rgba(11,15,20,0.98)', display: 'flex', gap: '10px', alignItems: 'center' }}>
         <input
+          ref={inputRef}
           value={input}
           onChange={e => setInput(e.target.value)}
-          onKeyDown={e => { if (e.key === 'Enter' && input.trim()) doSend(input, messages, doctrine, activeJob, memories); }}
-          placeholder={listening ? 'Listening...' : speaking ? 'Speaking...' : 'Type or tap mic...'}
-          disabled={listening}
-          style={{ flex: 1, background: '#111820', border: `1px solid ${accentColor}18`, borderRadius: '24px', padding: '12px 18px', color: '#e8edf2', fontFamily: "'DM Sans',sans-serif", fontSize: '0.92rem', outline: 'none' }}
+          onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendMessage(input); } }}
+          placeholder="Talk to Remy..."
+          style={{ flex: 1, background: '#111820', border: '1px solid rgba(255,255,255,0.08)', borderRadius: '12px', padding: '14px 16px', color: '#e8edf2', fontFamily: "'DM Sans',sans-serif", fontSize: '0.9rem', fontWeight: 300 }}
         />
-        <button
-          onClick={() => { if (input.trim()) doSend(input, messages, doctrine, activeJob, memories); }}
-          disabled={!input.trim() || loading}
-          style={{ padding: '12px 20px', background: input.trim() ? accentColor : 'rgba(255,255,255,0.04)', border: 'none', borderRadius: '24px', color: input.trim() ? '#fff' : '#3d5268', fontFamily: "'DM Sans',sans-serif", fontSize: '0.85rem', fontWeight: 500, cursor: input.trim() ? 'pointer' : 'default', transition: 'all 0.2s' }}
-        >
-          Send
-        </button>
+        {speaking ? (
+          <button className="mic-btn" onClick={stopSpeaking} style={{ background: 'rgba(240,122,46,0.15)', color: '#f07a2e', border: '2px solid #f07a2e' }}>â¹</button>
+        ) : recording ? (
+          <button className="mic-btn" onClick={stopRecording} style={{ background: '#f07a2e', color: '#fff', border: 'none', animation: 'pulse-ring 1s ease-in-out infinite' }}>ðŸŽ™</button>
+        ) : (
+          <button className="mic-btn" onClick={input.trim() ? () => sendMessage(input) : startRecording} style={{ background: input.trim() ? '#f07a2e' : '#111820', color: input.trim() ? '#fff' : '#7a8fa4', border: '1px solid rgba(255,255,255,0.08)' }}>
+            {input.trim() ? 'â†‘' : 'ðŸŽ™'}
+          </button>
+        )}
       </div>
-    </div>
-  );
-}
 
-export default function VoicePage() {
-  return (
-    <Suspense fallback={<div style={{ background: '#0b0f14', height: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#3d5268', fontFamily: 'monospace' }}>Loading...</div>}>
-      <VoicePageInner />
-    </Suspense>
+      {/* Job picker overlay */}
+      {showJobs && (
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.7)', zIndex: 100, display: 'flex', flexDirection: 'column', justifyContent: 'flex-end' }} onClick={() => setShowJobs(false)}>
+          <div style={{ background: '#111820', borderRadius: '20px 20px 0 0', maxHeight: '70vh', overflow: 'hidden', display: 'flex', flexDirection: 'column' }} onClick={e => e.stopPropagation()}>
+            <div style={{ padding: '16px 20px', borderBottom: '1px solid rgba(255,255,255,0.07)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <div style={{ fontFamily: "'Syne',sans-serif", fontWeight: 700, fontSize: '1rem' }}>Select Job</div>
+              <button onClick={() => setShowJobs(false)} style={{ background: 'transparent', border: 'none', color: '#3d5268', fontSize: '1.2rem', cursor: 'pointer' }}>âœ•</button>
+            </div>
+            <div style={{ overflowY: 'auto', WebkitOverflowScrolling: 'touch' }}>
+              <div className="job-item" onClick={() => { setCurrentJob(null); setShowJobs(false); }}>
+                <div style={{ width: 8, height: 8, borderRadius: '50%', background: '#3d5268' }} />
+                <div style={{ color: '#3d5268', fontSize: '0.88rem' }}>No job selected</div>
+              </div>
+              {jobs.map(job => {
+                const col = JOB_COLORS[job.job_type] || '#7a8fa4';
+                return (
+                  <div key={job.id} className="job-item" onClick={() => { setCurrentJob(job); setShowJobs(false); setMessages([]); }}>
+                    <div style={{ width: 8, height: 8, borderRadius: '50%', background: col, flexShrink: 0 }} />
+                    <div style={{ flex: 1 }}>
+                      <div style={{ fontWeight: 500, fontSize: '0.9rem' }}>{job.customer_name}</div>
+                      <div style={{ fontSize: '0.72rem', color: '#3d5268', marginTop: '2px' }}>{job.address}</div>
+                    </div>
+                    <div style={{ fontSize: '0.68rem', fontWeight: 600, color: col, background: col + '22', padding: '3px 8px', borderRadius: '4px', textTransform: 'uppercase' }}>{job.job_type}</div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        </div>
+      )}
+
+      <style>{`
+        @keyframes pulse { 0% { opacity: 0.3; transform: scale(0.8); } 100% { opacity: 1; transform: scale(1.2); } }
+        @keyframes pulse-ring { 0% { box-shadow: 0 0 0 0 rgba(240,122,46,0.4); } 70% { box-shadow: 0 0 0 12px rgba(240,122,46,0); } 100% { box-shadow: 0 0 0 0 rgba(240,122,46,0); } }
+      `}</style>
+    </div>
   );
 }
