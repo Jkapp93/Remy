@@ -58,6 +58,11 @@ export default function NotesPage() {
     setLoading(false);
   };
 
+  useEffect(() => {
+    if (!isLoaded || !user) return;
+    loadData();
+  }, [isLoaded, user]);
+
   const getJobName = (jobId: string) => {
     const job = jobs.find(j => j.id === jobId);
     return job ? job.customer_name : 'Unknown Job';
