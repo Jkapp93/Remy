@@ -3,7 +3,6 @@ import { useState, useEffect } from 'react';
 import { useUser } from '@clerk/nextjs';
 import { useRouter } from 'next/navigation';
 
-import { useEffect } from 'react';
 export default function OnboardPage() {
   const { user, isLoaded } = useUser();
   useEffect(() => { if (!isLoaded) return; if (!user) return; fetch('/api/onboard-check?clerkId=' + user.id).then(r => r.json()).then(d => { if (d.onboarded) window.location.href = d.redirect; }); }, [isLoaded, user]);
