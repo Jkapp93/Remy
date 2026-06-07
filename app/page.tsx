@@ -1,5 +1,6 @@
 ﻿import Link from 'next/link';
-import RemyCore from '../components/RemyCore';
+import dynamic from 'next/dynamic';
+const RemyCore = dynamic(() => import('../components/RemyCore'), { ssr: false });
 
 export default function LandingPage() {
   return (
