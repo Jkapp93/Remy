@@ -1,4 +1,5 @@
 ﻿'use client';
+import { Suspense } from 'react';
 import { useState, useEffect } from 'react';
 import { useUser } from '@clerk/nextjs';
 import { useSearchParams, useRouter } from 'next/navigation';
@@ -17,7 +18,7 @@ const OUTCOMES = [
   { id: 'inspection', label: 'Inspection', emoji: 'ðŸ”', color: '#4a9fd4', desc: 'Scheduled an inspection' },
 ];
 
-export default function OutcomePage() {
+function OutcomeContent() {
   const { user, isLoaded } = useUser();
   const searchParams = useSearchParams();
   const router = useRouter();
@@ -132,3 +133,6 @@ export default function OutcomePage() {
     </div>
   );
 }
+
+
+export default function OutcomePage() { return <Suspense fallback={null}><OutcomeContent /></Suspense>; }
