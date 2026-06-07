@@ -45,7 +45,7 @@ export default function RemyCore() {
     const rd = (d: number) => d * Math.PI / 180;
     let t = 0;
 
-    function rs() {
+    function rs() { if(!cv) return;
       cv.width = cv.offsetWidth * devicePixelRatio;
       cv.height = cv.offsetHeight * devicePixelRatio;
       cx.scale(devicePixelRatio, devicePixelRatio);
