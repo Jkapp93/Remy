@@ -37,23 +37,6 @@ export default function NotesPage() {
   const [jobs, setJobs] = useState<Job[]>([]);
   const [selectedJob, setSelectedJob] = useState<string>('all');
   const [loading, setLoading] = useState(true);
-  useEffect(() => {
-    if (!isLoaded || !user) return;
-    loadData();
-  }, [isLoaded, user]);
-
-  const loadData = async () => {
-    setLoading(true);
-    const [notesRes, jobsRes] = await Promise.all([
-      fetch('/api/notes?repId=' + user!.id),
-      fetch('/api/jobs'),
-    ]);
-    const notesData = await notesRes.json();
-    const jobsData = await jobsRes.json();
-    setNotes(notesData.notes || []);
-    setJobs(jobsData.jobs || []);
-    setLoading(false);
-  };
   const [expanded, setExpanded] = useState<string | null>(null);
 
   useEffect(() => {
@@ -62,9 +45,10 @@ export default function NotesPage() {
   }, [isLoaded, user]);
 
   const loadData = async () => {
+    if (!user) return;
     setLoading(true);
     const [notesRes, jobsRes] = await Promise.all([
-      fetch(`/api/notes?repId=${user!.id}`),
+      fetch('/api/notes?repId=' + user.id),
       fetch('/api/jobs'),
     ]);
     const notesData = await notesRes.json();
@@ -85,7 +69,6 @@ export default function NotesPage() {
   };
 
   const filteredNotes = selectedJob === 'all' ? notes : notes.filter(n => n.job_id === selectedJob);
-
   const jobsWithNotes = jobs.filter(j => notes.some(n => n.job_id === j.id));
 
   return (
@@ -100,23 +83,20 @@ export default function NotesPage() {
         .badge { font-size: 0.62rem; font-weight: 600; letter-spacing: 0.08em; text-transform: uppercase; padding: 3px 8px; border-radius: 4px; }
       `}</style>
 
-      {/* Header */}
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '16px 20px', borderBottom: '1px solid rgba(255,255,255,0.07)', background: 'rgba(11,15,20,0.98)', position: 'sticky', top: 0, zIndex: 50 }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-          <Link href="/dashboard" style={{ color: '#3d5268', fontSize: '1.2rem', textDecoration: 'none' }}>Back</Link>
+          <Link href="/dashboard" style={{ color: '#3d5268', textDecoration: 'none', fontSize: '0.88rem' }}>Back</Link>
           <div style={{ fontFamily: "'Syne',sans-serif", fontWeight: 800, fontSize: '1.1rem' }}>Field Notes</div>
         </div>
         <div style={{ fontSize: '0.75rem', color: '#3d5268' }}>{filteredNotes.length} notes</div>
       </div>
 
       <div style={{ maxWidth: '700px', margin: '0 auto', padding: '20px 16px' }}>
-
-        {/* Job filter */}
         {jobsWithNotes.length > 0 && (
-          <div style={{ display: 'flex', gap: '8px', overflowX: 'auto', paddingBottom: '4px', marginBottom: '20px', WebkitOverflowScrolling: 'touch' }}>
-            <button className={`filter-pill ${selectedJob === 'all' ? 'active' : ''}`} onClick={() => setSelectedJob('all')}>All Jobs</button>
+          <div style={{ display: 'flex', gap: '8px', overflowX: 'auto', paddingBottom: '4px', marginBottom: '20px' }}>
+            <button className={'filter-pill' + (selectedJob === 'all' ? ' active' : '')} onClick={() => setSelectedJob('all')}>All Jobs</button>
             {jobsWithNotes.map(job => (
-              <button key={job.id} className={`filter-pill ${selectedJob === job.id ? 'active' : ''}`} onClick={() => setSelectedJob(job.id)}>
+              <button key={job.id} className={'filter-pill' + (selectedJob === job.id ? ' active' : '')} onClick={() => setSelectedJob(job.id)}>
                 {job.customer_name}
               </button>
             ))}
@@ -144,7 +124,6 @@ export default function NotesPage() {
 
               return (
                 <div key={note.id} className="note-card" onClick={() => setExpanded(isOpen ? null : note.id)}>
-                  {/* Top row */}
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '10px' }}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                       <div style={{ width: 8, height: 8, borderRadius: '50%', background: col, flexShrink: 0 }} />
@@ -153,12 +132,10 @@ export default function NotesPage() {
                     <div style={{ fontSize: '0.7rem', color: '#2d3f52' }}>{date}</div>
                   </div>
 
-                  {/* Summary */}
                   <div style={{ fontSize: '0.88rem', color: '#e8edf2', fontWeight: 300, lineHeight: 1.6, marginBottom: '12px' }}>
                     {note.summary || note.raw_note}
                   </div>
 
-                  {/* Badges */}
                   <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
                     {note.outcome && (
                       <span className="badge" style={{ background: outCol + '22', color: outCol }}>{note.outcome.replace('_', ' ')}</span>
@@ -171,14 +148,13 @@ export default function NotesPage() {
                     )}
                   </div>
 
-                  {/* Expanded details */}
                   {isOpen && (
                     <div style={{ marginTop: '16px', paddingTop: '16px', borderTop: '1px solid rgba(255,255,255,0.06)' }}>
                       {note.key_details && note.key_details.length > 0 && (
                         <div style={{ marginBottom: '12px' }}>
                           <div style={{ fontSize: '0.68rem', fontWeight: 600, letterSpacing: '0.1em', textTransform: 'uppercase', color: '#3d5268', marginBottom: '8px' }}>Key Details</div>
                           {note.key_details.map((d, i) => (
-                            <div key={i} style={{ fontSize: '0.82rem', color: '#7a8fa4', padding: '4px 0', borderBottom: '1px solid rgba(255,255,255,0.04)', fontWeight: 300 }}>â€¢ {d}</div>
+                            <div key={i} style={{ fontSize: '0.82rem', color: '#7a8fa4', padding: '4px 0', borderBottom: '1px solid rgba(255,255,255,0.04)', fontWeight: 300 }}>- {d}</div>
                           ))}
                         </div>
                       )}
