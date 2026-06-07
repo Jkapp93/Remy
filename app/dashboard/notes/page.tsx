@@ -18,11 +18,8 @@ type Note = {
 type Job = { id: string; customer_name: string; job_type: string; address: string };
 
 const OUTCOME_COLORS: Record<string, string> = {
-  sold: '#3daf76',
-  no_sale: '#e74c3c',
-  follow_up: '#f07a2e',
-  inspection: '#4a9fd4',
-  other: '#7a8fa4',
+  sold: '#3daf76', no_sale: '#e74c3c', follow_up: '#f07a2e',
+  inspection: '#4a9fd4', other: '#7a8fa4',
 };
 
 const JOB_COLORS: Record<string, string> = {
@@ -39,16 +36,10 @@ export default function NotesPage() {
   const [loading, setLoading] = useState(true);
   const [expanded, setExpanded] = useState<string | null>(null);
 
-  useEffect(() => {
-    if (!isLoaded || !user) return;
-    loadData();
-  }, [isLoaded, user]);
-
-  const loadData = async () => {
-    if (!user) return;
+  const loadData = async (userId: string) => {
     setLoading(true);
     const [notesRes, jobsRes] = await Promise.all([
-      fetch('/api/notes?repId=' + user.id),
+      fetch('/api/notes?repId=' + userId),
       fetch('/api/jobs'),
     ]);
     const notesData = await notesRes.json();
@@ -60,18 +51,11 @@ export default function NotesPage() {
 
   useEffect(() => {
     if (!isLoaded || !user) return;
-    loadData();
+    loadData(user.id);
   }, [isLoaded, user]);
 
-  const getJobName = (jobId: string) => {
-    const job = jobs.find(j => j.id === jobId);
-    return job ? job.customer_name : 'Unknown Job';
-  };
-
-  const getJobType = (jobId: string) => {
-    const job = jobs.find(j => j.id === jobId);
-    return job?.job_type || 'other';
-  };
+  const getJobName = (jobId: string) => jobs.find(j => j.id === jobId)?.customer_name || 'No Job';
+  const getJobType = (jobId: string) => jobs.find(j => j.id === jobId)?.job_type || 'other';
 
   const filteredNotes = selectedJob === 'all' ? notes : notes.filter(n => n.job_id === selectedJob);
   const jobsWithNotes = jobs.filter(j => notes.some(n => n.job_id === j.id));
@@ -81,9 +65,9 @@ export default function NotesPage() {
       <style>{`
         @import url('https://fonts.googleapis.com/css2?family=Syne:wght@700;800&family=DM+Sans:wght@300;400;500&display=swap');
         * { box-sizing: border-box; margin: 0; padding: 0; }
-        .note-card { background: #111820; border: 1px solid rgba(255,255,255,0.07); border-radius: 14px; padding: 18px; cursor: pointer; transition: border-color 0.2s; }
+        .note-card { background: #111820; border: 1px solid rgba(255,255,255,0.07); border-radius: 14px; padding: 18px; cursor: pointer; transition: border-color 0.2s; margin-bottom: 12px; }
         .note-card:hover { border-color: rgba(240,122,46,0.2); }
-        .filter-pill { padding: 7px 14px; border-radius: 20px; border: 1px solid rgba(255,255,255,0.08); background: transparent; color: #7a8fa4; font-family: 'DM Sans', sans-serif; font-size: 0.78rem; cursor: pointer; transition: all 0.15s; white-space: nowrap; }
+        .filter-pill { padding: 7px 14px; border-radius: 20px; border: 1px solid rgba(255,255,255,0.08); background: transparent; color: #7a8fa4; font-family: DM Sans, sans-serif; font-size: 0.78rem; cursor: pointer; white-space: nowrap; }
         .filter-pill.active { background: #f07a2e; border-color: #f07a2e; color: #fff; }
         .badge { font-size: 0.62rem; font-weight: 600; letter-spacing: 0.08em; text-transform: uppercase; padding: 3px 8px; border-radius: 4px; }
       `}</style>
@@ -119,14 +103,12 @@ export default function NotesPage() {
             <Link href="/dashboard/voice" style={{ display: 'inline-block', marginTop: '20px', background: '#f07a2e', color: '#fff', padding: '12px 24px', borderRadius: '10px', textDecoration: 'none', fontSize: '0.88rem', fontWeight: 600 }}>Talk to Remy</Link>
           </div>
         ) : (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+          <div>
             {filteredNotes.map(note => {
-              const jobType = getJobType(note.job_id);
-              const col = JOB_COLORS[jobType] || '#7a8fa4';
+              const col = JOB_COLORS[getJobType(note.job_id)] || '#7a8fa4';
               const outCol = OUTCOME_COLORS[note.outcome] || '#7a8fa4';
               const isOpen = expanded === note.id;
               const date = new Date(note.created_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' });
-
               return (
                 <div key={note.id} className="note-card" onClick={() => setExpanded(isOpen ? null : note.id)}>
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '10px' }}>
@@ -136,23 +118,14 @@ export default function NotesPage() {
                     </div>
                     <div style={{ fontSize: '0.7rem', color: '#2d3f52' }}>{date}</div>
                   </div>
-
                   <div style={{ fontSize: '0.88rem', color: '#e8edf2', fontWeight: 300, lineHeight: 1.6, marginBottom: '12px' }}>
                     {note.summary || note.raw_note}
                   </div>
-
                   <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
-                    {note.outcome && (
-                      <span className="badge" style={{ background: outCol + '22', color: outCol }}>{note.outcome.replace('_', ' ')}</span>
-                    )}
-                    {note.quote_amount && (
-                      <span className="badge" style={{ background: 'rgba(61,175,118,0.1)', color: '#3daf76' }}>{note.quote_amount}</span>
-                    )}
-                    {note.follow_up_date && (
-                      <span className="badge" style={{ background: 'rgba(74,159,212,0.1)', color: '#4a9fd4' }}>Follow up: {note.follow_up_date}</span>
-                    )}
+                    {note.outcome && <span className="badge" style={{ background: outCol + '22', color: outCol }}>{note.outcome.replace('_', ' ')}</span>}
+                    {note.quote_amount && <span className="badge" style={{ background: 'rgba(61,175,118,0.1)', color: '#3daf76' }}>{note.quote_amount}</span>}
+                    {note.follow_up_date && <span className="badge" style={{ background: 'rgba(74,159,212,0.1)', color: '#4a9fd4' }}>Follow up: {note.follow_up_date}</span>}
                   </div>
-
                   {isOpen && (
                     <div style={{ marginTop: '16px', paddingTop: '16px', borderTop: '1px solid rgba(255,255,255,0.06)' }}>
                       {note.key_details && note.key_details.length > 0 && (
