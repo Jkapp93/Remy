@@ -258,7 +258,7 @@ ${doctrine ? `COMPANY DOCTRINE:\n${doctrine}\n` : ''}
 ${jobContext ? `CURRENT JOB:\n${jobContext}\n` : ''}
 ${memorySection}
 ${contextAdditions}`;
-      system: systemPrompt,
+    const response = await anthropic.messages.create({
       messages,
       tools: [{ type: 'web_search_20250305', name: 'web_search' } as any],
     });
