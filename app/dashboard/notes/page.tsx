@@ -45,7 +45,7 @@ export default function NotesPage() {
   const loadData = async () => {
     setLoading(true);
     const [notesRes, jobsRes] = await Promise.all([
-      fetch(/api/notes?repId=+user.id),
+      fetch('/api/notes?repId=' + user!.id),
       fetch('/api/jobs'),
     ]);
     const notesData = await notesRes.json();
