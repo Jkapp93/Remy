@@ -1,7 +1,14 @@
 ﻿import { NextRequest, NextResponse } from 'next/server';
 import Anthropic from '@anthropic-ai/sdk';
+import { createClient } from '@supabase/supabase-js';
 
 const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
+const supabase = createClient(
+  process.env.NEXT_PUBLIC_SUPABASE_URL!,
+  process.env.SUPABASE_SERVICE_ROLE_KEY!
+);
+
+// â”€â”€â”€ FIELD INTEL â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 async function getWeather(address: string) {
   try {
@@ -11,7 +18,17 @@ async function getWeather(address: string) {
     const { lat, lng } = geoData.results[0].geometry.location;
     const res = await fetch(`https://api.openweathermap.org/data/2.5/weather?lat=${lat}&lon=${lng}&appid=${process.env.OPENWEATHERMAP_API_KEY}&units=imperial`);
     const data = await res.json();
-    return `${data.weather[0].description}, ${Math.round(data.main.temp)}F, humidity ${data.main.humidity}%, wind ${Math.round(data.wind.speed)}mph`;
+    const conditions = data.weather[0].description.toLowerCase();
+    const isStorm = conditions.includes('storm') || conditions.includes('thunder') || conditions.includes('hurricane') || data.wind.speed > 35;
+    return {
+      summary: `${data.weather[0].description}, ${Math.round(data.main.temp)}F, humidity ${data.main.humidity}%, wind ${Math.round(data.wind.speed)}mph`,
+      isStorm,
+      conditions,
+      temp: data.main.temp,
+      wind: data.wind.speed,
+      lat,
+      lng,
+    };
   } catch { return null; }
 }
 
@@ -29,37 +46,119 @@ async function getNearbyPlaces(address: string, type: string) {
   } catch { return null; }
 }
 
+// â”€â”€â”€ INTENT DETECTION â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+
 function detectNoteIntent(msg: string): boolean {
-  const noteKeywords = ['log this', 'note this', 'remember this', 'save this', 'write that down', 'log it', 'make a note', 'jot that down', 'record this'];
-  return noteKeywords.some(k => msg.toLowerCase().includes(k));
+  const keywords = ['log this', 'note this', 'remember this', 'save this', 'write that down', 'log it', 'make a note', 'jot that down', 'record this'];
+  return keywords.some(k => msg.toLowerCase().includes(k));
 }
 
-function detectFollowUpIntent(msg: string): { hasFollowUp: boolean; date?: string } {
-  const patterns = [/follow.?up (on |this )?(monday|tuesday|wednesday|thursday|friday|saturday|sunday)/i, /call (them |him |her )?(back )?(monday|tuesday|wednesday|thursday|friday|tomorrow|next week)/i, /check back (monday|tuesday|wednesday|thursday|friday|tomorrow|next week)/i];
+function detectFollowUp(msg: string): string | null {
+  const patterns = [
+    /follow.?up (on |this )?(monday|tuesday|wednesday|thursday|friday|saturday|sunday|tomorrow|next week)/i,
+    /call (them|him|her)? ?(back)? ?(monday|tuesday|wednesday|thursday|friday|saturday|sunday|tomorrow|next week)/i,
+    /check back (monday|tuesday|wednesday|thursday|friday|tomorrow|next week)/i,
+    /circle back (monday|tuesday|wednesday|thursday|friday|tomorrow|next week)/i,
+  ];
   for (const p of patterns) {
     const match = msg.match(p);
-    if (match) return { hasFollowUp: true, date: match[0] };
+    if (match) return match[0];
   }
-  return { hasFollowUp: false };
+  return null;
 }
+
+function detectJobOutcome(msg: string): string | null {
+  const lower = msg.toLowerCase();
+  if (/(they signed|signed the deal|closed it|got the job|sold it|they bought|contract signed|got the contract|they said yes|closed the deal)/.test(lower)) return 'sold';
+  if (/(they passed|no sale|didn't sell|not interested|lost it|they said no|won't buy|not moving forward|passed on it)/.test(lower)) return 'no_sale';
+  if (/(follow up|following up|coming back|check back|they want to think|need to think about it|get back to me)/.test(lower)) return 'follow_up';
+  return null;
+}
+
+function detectFinancingNeed(msg: string): boolean {
+  const lower = msg.toLowerCase();
+  return /(too expensive|can't afford|price is high|out of budget|financing|payment plan|monthly|how much down|payments)/.test(lower);
+}
+
+// â”€â”€â”€ AGENTIC ACTIONS â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+
+async function autoLogSession(repId: string, jobId: string | null, messages: any[], summary: string, companyId: string | null) {
+  await supabase.from('conversations').insert({
+    rep_id: repId,
+    job_id: jobId || null,
+    company_id: companyId,
+    summary: summary.slice(0, 300),
+    created_at: new Date().toISOString(),
+  });
+}
+
+async function autoSaveNote(repId: string, jobId: string | null, rawNote: string, jobName: string) {
+  try {
+    await fetch('https://remy-nu.vercel.app/api/notes', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ repId, jobId, rawNote, jobName }),
+    });
+  } catch {}
+}
+
+async function updateJobStatus(jobId: string, status: string) {
+  if (!jobId) return;
+  const mappedStatus = status === 'sold' ? 'closed' : status === 'no_sale' ? 'closed' : 'active';
+  await supabase.from('jobs').update({ 
+    status: mappedStatus,
+    notes: `Outcome: ${status} â€” logged by Remy on ${new Date().toLocaleDateString()}`
+  }).eq('id', jobId);
+}
+
+async function broadcastStormAlert(companyId: string, jobAddress: string, weather: any) {
+  if (!companyId) return;
+  const msg = `STORM ALERT: ${weather.conditions} conditions near ${jobAddress}. Wind ${Math.round(weather.wind)}mph. Brief all reps on storm damage talking points before knocking.`;
+  await supabase.from('doctrine').insert({
+    content: `[STORM ALERT] ${msg}`,
+    type: 'broadcast',
+    active: true,
+    company_id: companyId,
+    created_at: new Date().toISOString(),
+  });
+}
+
+async function saveFollowUp(repId: string, jobId: string | null, date: string, jobName: string) {
+  await autoSaveNote(repId, jobId, `Follow-up scheduled: ${date} for ${jobName || 'this job'}`, jobName);
+}
+
+async function getCompanyId(repId: string): Promise<string | null> {
+  const { data } = await supabase.from('profiles').select('company_id').eq('clerk_id', repId).single();
+  return data?.company_id || null;
+}
+
+async function updateRepMemory(repId: string, companyId: string | null, insight: string) {
+  if (!repId || !insight) return;
+  const existing = await supabase.from('rep_memory').select('content').eq('rep_id', repId).single();
+  const content = existing.data?.content
+    ? existing.data.content + '\n' + insight
+    : insight;
+  await supabase.from('rep_memory').upsert({ rep_id: repId, company_id: companyId, content }, { onConflict: 'rep_id' });
+}
+
+// â”€â”€â”€ MAIN HANDLER â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 export async function POST(req: NextRequest) {
   try {
     const { messages, doctrine, jobContext, memories, repId, jobId } = await req.json();
 
-    // Rate limiting check
+    // Rate limit check
     if (repId) {
       const limitRes = await fetch(`https://remy-nu.vercel.app/api/rate-limit?repId=${repId}`).catch(() => null);
       if (limitRes) {
         const limitData = await limitRes.json();
         if (!limitData.allowed) {
-          return NextResponse.json({ 
+          return NextResponse.json({
             message: `You have used all ${limitData.limit} messages for today. Your limit resets at midnight. Upgrade your plan for more daily messages.`,
             rateLimited: true
           });
         }
-        // Increment usage
-        fetch(`https://remy-nu.vercel.app/api/rate-limit`, {
+        fetch('https://remy-nu.vercel.app/api/rate-limit', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ repId }),
@@ -70,47 +169,64 @@ export async function POST(req: NextRequest) {
     const today = new Date().toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' });
     const timeNow = new Date().toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' });
     const hour = new Date().getHours();
+    const lastMsg = messages[messages.length - 1]?.content || '';
+    const lastMsgLower = lastMsg.toLowerCase();
 
-    const lastMsg = messages[messages.length - 1]?.content?.toLowerCase() || '';
+    // Get company ID for agentic actions
+    const companyId = repId ? await getCompanyId(repId) : null;
+
+    // Detect intents
+    const isNoteRequest = detectNoteIntent(lastMsgLower);
+    const followUpDate = detectFollowUp(lastMsgLower);
+    const jobOutcome = detectJobOutcome(lastMsgLower);
+    const needsFinancing = detectFinancingNeed(lastMsgLower);
+
     const jobAddress = jobContext ? jobContext.match(/Address: (.+)/)?.[1] : null;
+    const jobName = jobContext ? jobContext.match(/Customer: (.+)/)?.[1] : null;
     const hasAddress = jobAddress && jobAddress !== 'Not provided';
 
+    // â”€â”€ FIELD INTEL â”€â”€
     let contextAdditions = '';
-    const isNoteRequest = detectNoteIntent(lastMsg);
-    const followUp = detectFollowUpIntent(lastMsg);
+    let weatherData: any = null;
 
     if (hasAddress) {
-      const needsWeather = lastMsg.includes('weather') || lastMsg.includes('rain') || lastMsg.includes('wind') || lastMsg.includes('hot') || lastMsg.includes('storm') || lastMsg.includes('brief');
-      const needsFood = lastMsg.includes('eat') || lastMsg.includes('lunch') || lastMsg.includes('food') || lastMsg.includes('hungry') || lastMsg.includes('restaurant') || lastMsg.includes('grab');
-      const needsGas = lastMsg.includes('gas') || lastMsg.includes('fuel');
-      const needsHardware = lastMsg.includes('hardware') || lastMsg.includes('home depot') || lastMsg.includes('lowes') || lastMsg.includes('supplies');
+      const needsWeather = lastMsgLower.includes('weather') || lastMsgLower.includes('rain') || lastMsgLower.includes('wind') || lastMsgLower.includes('storm') || lastMsgLower.includes('brief');
+      const needsFood = lastMsgLower.includes('eat') || lastMsgLower.includes('lunch') || lastMsgLower.includes('food') || lastMsgLower.includes('hungry');
+      const needsGas = lastMsgLower.includes('gas') || lastMsgLower.includes('fuel');
+      const needsHardware = lastMsgLower.includes('hardware') || lastMsgLower.includes('supplies');
 
       const [weather, food, gas, hardware] = await Promise.all([
-        needsWeather ? getWeather(jobAddress) : Promise.resolve(null),
+        needsWeather || lastMsgLower.includes('brief') ? getWeather(jobAddress) : Promise.resolve(null),
         needsFood ? getNearbyPlaces(jobAddress, 'restaurant') : Promise.resolve(null),
         needsGas ? getNearbyPlaces(jobAddress, 'gas_station') : Promise.resolve(null),
         needsHardware ? getNearbyPlaces(jobAddress, 'hardware_store') : Promise.resolve(null),
       ]);
 
-      if (weather) contextAdditions += `\nWEATHER AT JOB: ${weather}\n`;
+      if (weather) {
+        weatherData = weather;
+        contextAdditions += `\nWEATHER AT JOB: ${weather.summary}\n`;
+        if (weather.isStorm) {
+          contextAdditions += `\nSTORM CONDITIONS DETECTED. Alert the rep. Recommend storm damage talking points.\n`;
+          // Agentic: broadcast storm alert to company
+          if (companyId) broadcastStormAlert(companyId, jobAddress, weather).catch(() => {});
+        }
+      }
       if (food) contextAdditions += `\nNEARBY FOOD: ${food}\n`;
       if (gas) contextAdditions += `\nNEARBY GAS: ${gas}\n`;
       if (hardware) contextAdditions += `\nNEARBY HARDWARE: ${hardware}\n`;
     }
 
-    if (isNoteRequest) {
-      contextAdditions += `\nThe rep wants to log a note. After acknowledging their note, confirm what you saved and remind them you will keep it on file.\n`;
-    }
-
-    if (followUp.hasFollowUp) {
-      contextAdditions += `\nThe rep mentioned a follow-up: ${followUp.date}. Acknowledge it and confirm you have noted it.\n`;
-    }
+    // â”€â”€ INTENT CONTEXT â”€â”€
+    if (isNoteRequest) contextAdditions += `\nRep wants to log a note. Confirm what you captured and that it is saved.\n`;
+    if (followUpDate) contextAdditions += `\nFollow-up mentioned: ${followUpDate}. Confirm you noted it and will remind them.\n`;
+    if (jobOutcome) contextAdditions += `\nJob outcome detected: ${jobOutcome}. Acknowledge it, log it, and transition naturally.\n`;
+    if (needsFinancing) contextAdditions += `\nCustomer may have budget concerns. Mention financing options like GreenSky or Synchrony if appropriate. Monthly payments can turn a no into a yes.\n`;
 
     const memorySection = memories && memories.length > 0
-      ? `WHAT YOU KNOW ABOUT THIS REP:\n${memories.map((m: {content: string}) => `- ${m.content}`).join('\n')}\n`
+      ? `WHAT YOU KNOW ABOUT THIS REP:\n${memories.map((m: { content: string }) => `- ${m.content}`).join('\n')}\n`
       : '';
 
-    const systemPrompt = `You are Remy, an elite AI field co-pilot for home services sales reps. Sharp, direct, always in their corner.
+    const systemPrompt = `You are Remy, an elite AI field co-pilot and agentic assistant for home services sales reps. Sharp, direct, always taking action.
 
 Today is ${today}. Time: ${timeNow}.${hour >= 10 && hour <= 14 ? ' Lunch window.' : ''}
 
@@ -122,21 +238,27 @@ CRITICAL RULES:
 - Never start a response with I.
 - Talk like a trusted teammate in the truck with them.
 
-NOTE TAKING:
-- When rep says log this, note this, remember this, save this â€” confirm you logged it and summarize what you captured.
-- When they mention a follow-up date â€” confirm you noted it.
-- When they describe what happened at a job â€” summarize it back in one sentence and confirm it is saved.
+YOU ARE AN AGENT NOT JUST A CHATBOT:
+- When rep logs a note, confirm you saved it automatically.
+- When rep mentions a job outcome, confirm you updated the job record.
+- When rep mentions a follow-up, confirm you scheduled the reminder.
+- When storm conditions exist, proactively warn and brief on storm damage angles.
+- When customer has budget concerns, naturally introduce financing options.
+- After every conversation, you automatically log a summary for the boss.
 
 FIELD INTEL:
 - Surface weather, food, supplies naturally when relevant. Never list robotically.
-- If rep sounds tired or frustrated â€” acknowledge it briefly, then refocus.
+- Storm conditions are a sales opportunity for roofing and restoration â€” surface this.
+
+FINANCING:
+- GreenSky and Synchrony offer 0% financing options for home services.
+- When price is an objection, pivot to monthly payments. 3500 dollars sounds like a lot. 97 dollars a month does not.
 
 WHAT YOU DO:
 - Brief reps before they knock. Fast, sharp, specific.
 - Give exact words to say, not advice about what to say.
 - Handle objections with ready responses.
-- Log notes when asked. No forms, no typing, just talk.
-- Remind reps of follow-ups they mentioned.
+- Log notes, update job status, schedule follow-ups â€” all automatically.
 - Motivate without being cheesy.
 
 ${doctrine ? `COMPANY DOCTRINE:\n${doctrine}\n` : ''}
@@ -157,15 +279,23 @@ ${contextAdditions}`;
       .map((b: any) => b.text)
       .join('');
 
-    // If note intent detected, save the note in background
-    if (isNoteRequest && repId) {
-      const rawNote = messages[messages.length - 1]?.content || '';
-      fetch(`https://remy-nu.vercel.app/api/notes`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ repId, jobId, rawNote, jobName: jobContext?.split('\n')[0] }),
-      }).catch(() => {});
-    }
+    // â”€â”€ AGENTIC ACTIONS (fire and forget) â”€â”€
+    Promise.all([
+      // 1. Auto-log every session to conversations
+      repId ? autoLogSession(repId, jobId || null, messages, text, companyId) : Promise.resolve(),
+
+      // 2. Save note if requested
+      isNoteRequest && repId ? autoSaveNote(repId, jobId || null, lastMsg, jobName || 'Unknown Job') : Promise.resolve(),
+
+      // 3. Save follow-up as note
+      followUpDate && repId ? saveFollowUp(repId, jobId || null, followUpDate, jobName || 'Unknown Job') : Promise.resolve(),
+
+      // 4. Update job status if outcome detected
+      jobOutcome && jobId ? updateJobStatus(jobId, jobOutcome) : Promise.resolve(),
+
+      // 5. Update rep memory with session insight
+      repId && jobOutcome ? updateRepMemory(repId, companyId, `On ${today} at ${jobName || 'a job'}: outcome was ${jobOutcome}`) : Promise.resolve(),
+    ]).catch(() => {});
 
     return NextResponse.json({ message: text });
   } catch (error) {
