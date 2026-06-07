@@ -112,7 +112,7 @@ export default function NotesPage() {
           <div style={{ textAlign: 'center', padding: '60px 20px' }}>
             <div style={{ fontSize: '2rem', marginBottom: '12px' }}>ðŸ“</div>
             <div style={{ color: '#3d5268', fontSize: '0.88rem', fontWeight: 300, lineHeight: 1.7 }}>
-              No notes yet. Say "log this" to Remy after a job and she will save it here.
+              No notes yet. Say log this to Remy after a job and she will save it here.
             </div>
             <Link href="/dashboard/voice" style={{ display: 'inline-block', marginTop: '20px', background: '#f07a2e', color: '#fff', padding: '12px 24px', borderRadius: '10px', textDecoration: 'none', fontSize: '0.88rem', fontWeight: 600 }}>Talk to Remy</Link>
           </div>
