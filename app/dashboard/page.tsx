@@ -38,11 +38,12 @@ export default function DashboardPage() {
             <div style={{ fontFamily:"'Syne', sans-serif", fontWeight:700, fontSize:'1rem', marginBottom:'6px' }}>Jobs</div>
             <div style={{ color:'#7a8fa4', fontSize:'0.82rem', fontWeight:300 }}>Create and manage your field jobs</div>
 
+          </Link>
+
           <Link href="/dashboard/notes" className="card">
             <div className="card-icon" style={{ background:'rgba(255,255,255,0.05)', color:'#7a8fa4' }}>NOTE</div>
             <div style={{ fontFamily:"'Syne', sans-serif", fontWeight:700, fontSize:'1rem', marginBottom:'6px' }}>Field Notes</div>
             <div style={{ color:'#7a8fa4', fontSize:'0.82rem', fontWeight:300 }}>View logged job notes and follow-ups</div>
-          </Link>
           </Link>
 
           <Link href="/dashboard/voice" className="card card-orange">
