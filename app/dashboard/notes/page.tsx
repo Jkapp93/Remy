@@ -86,7 +86,7 @@ export default function NotesPage() {
       {/* Header */}
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '16px 20px', borderBottom: '1px solid rgba(255,255,255,0.07)', background: 'rgba(11,15,20,0.98)', position: 'sticky', top: 0, zIndex: 50 }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-          <Link href="/dashboard" style={{ color: '#3d5268', textDecoration: 'none', fontSize: '1.2rem' }}>â†</Link>
+          <Link href="/dashboard" style={{ color: '#3d5268', textDecoration: 'none', fontSize: '1.2rem', textDecoration: 'none' }}>â†</Link>
           <div style={{ fontFamily: "'Syne',sans-serif", fontWeight: 800, fontSize: '1.1rem' }}>Field Notes</div>
         </div>
         <div style={{ fontSize: '0.75rem', color: '#3d5268' }}>{filteredNotes.length} notes</div>
