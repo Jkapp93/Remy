@@ -61,7 +61,7 @@ export default function LandingPage() {
       {/* Arc Reactor Visual */}
       <div style={{ padding:'60px 40px 20px', textAlign:'center' }}>
         <div style={{ fontSize:'0.68rem', fontWeight:600, letterSpacing:'0.15em', textTransform:'uppercase', color:'#f07a2e', marginBottom:'32px' }}>Field Intelligence Network</div>
-        <div style={{ maxWidth:'560px', margin:'0 auto', borderRadius:'16px', overflow:'hidden', border:'1px solid rgba(240,122,46,0.12)' }}>
+        <div style={{ maxWidth:'700px', margin:'0 auto', borderRadius:'16px', overflow:'hidden', border:'1px solid rgba(240,122,46,0.12)' }}>
           <RemyCore />
         </div>
         <div style={{ fontSize:'0.78rem', color:'#2d3f52', marginTop:'16px', fontWeight:300 }}>6 integrated systems. Zero CRM inputs required.</div>
