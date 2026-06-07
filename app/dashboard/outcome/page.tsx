@@ -1,5 +1,6 @@
 ﻿'use client';
 import { Suspense } from 'react';
+import { Suspense } from 'react';
 import { useState, useEffect } from 'react';
 import { useUser } from '@clerk/nextjs';
 import { useSearchParams, useRouter } from 'next/navigation';
@@ -134,5 +135,7 @@ function OutcomeContent() {
   );
 }
 
+
+function OutcomeContent() { return <Suspense fallback={null}><OutcomeContent /></Suspense>; }
 
 export default function OutcomePage() { return <Suspense fallback={null}><OutcomeContent /></Suspense>; }
