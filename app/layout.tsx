@@ -29,7 +29,6 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
     <ClerkProvider
       publishableKey={process.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY}
       fallbackRedirectUrl="/dashboard"
-      fallbackRedirectUrl="/onboard"
     >
       <html lang="en">
         <head>
