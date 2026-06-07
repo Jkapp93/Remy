@@ -1,13 +1,12 @@
 ﻿import { NextRequest, NextResponse } from 'next/server';
 import Anthropic from '@anthropic-ai/sdk';
 import { createClient } from '@supabase/supabase-js';
+
 const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
   process.env.SUPABASE_SERVICE_ROLE_KEY!
 );
-
-// â”€â”€â”€ FIELD INTEL â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 async function getWeather(address: string) {
   try {
@@ -18,16 +17,8 @@ async function getWeather(address: string) {
     const res = await fetch(`https://api.openweathermap.org/data/2.5/weather?lat=${lat}&lon=${lng}&appid=${process.env.OPENWEATHERMAP_API_KEY}&units=imperial`);
     const data = await res.json();
     const conditions = data.weather[0].description.toLowerCase();
-    const isStorm = conditions.includes('storm') || conditions.includes('thunder') || conditions.includes('hurricane') || data.wind.speed > 35;
-    return {
-      summary: `${data.weather[0].description}, ${Math.round(data.main.temp)}F, humidity ${data.main.humidity}%, wind ${Math.round(data.wind.speed)}mph`,
-      isStorm,
-      conditions,
-      temp: data.main.temp,
-      wind: data.wind.speed,
-      lat,
-      lng,
-    };
+    const isStorm = conditions.includes('storm') || conditions.includes('thunder') || data.wind.speed > 35;
+    return { summary: `${data.weather[0].description}, ${Math.round(data.main.temp)}F, wind ${Math.round(data.wind.speed)}mph`, isStorm };
   } catch { return null; }
 }
 
@@ -39,91 +30,34 @@ async function getNearbyPlaces(address: string, type: string) {
     const { lat, lng } = geoData.results[0].geometry.location;
     const res = await fetch(`https://maps.googleapis.com/maps/api/place/nearbysearch/json?location=${lat},${lng}&radius=2000&type=${type}&key=${process.env.NEXT_PUBLIC_GOOGLE_MAPS_KEY}`);
     const data = await res.json();
-    return data.results?.slice(0, 4).map((p: any) =>
-      `${p.name} (${p.vicinity})${p.rating ? ` ${p.rating} stars` : ''}`
-    ).join(', ') || null;
+    return data.results?.slice(0, 4).map((p: any) => `${p.name} (${p.vicinity})${p.rating ? ` ${p.rating} stars` : ''}`).join(', ') || null;
   } catch { return null; }
 }
 
-// â”€â”€â”€ INTENT DETECTION â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
-
 function detectNoteIntent(msg: string): boolean {
-  const keywords = ['log this', 'note this', 'remember this', 'save this', 'write that down', 'log it', 'make a note', 'jot that down', 'record this'];
-  return keywords.some(k => msg.toLowerCase().includes(k));
+  return ['log this', 'note this', 'remember this', 'save this', 'write that down', 'log it', 'make a note', 'record this'].some(k => msg.toLowerCase().includes(k));
 }
 
 function detectFollowUp(msg: string): string | null {
   const patterns = [
     /follow.?up (on |this )?(monday|tuesday|wednesday|thursday|friday|saturday|sunday|tomorrow|next week)/i,
-    /call (them|him|her)? ?(back)? ?(monday|tuesday|wednesday|thursday|friday|saturday|sunday|tomorrow|next week)/i,
+    /call (them|him|her)? ?(back)? ?(monday|tuesday|wednesday|thursday|friday|tomorrow|next week)/i,
     /check back (monday|tuesday|wednesday|thursday|friday|tomorrow|next week)/i,
-    /circle back (monday|tuesday|wednesday|thursday|friday|tomorrow|next week)/i,
   ];
-  for (const p of patterns) {
-    const match = msg.match(p);
-    if (match) return match[0];
-  }
+  for (const p of patterns) { const m = msg.match(p); if (m) return m[0]; }
   return null;
 }
 
 function detectJobOutcome(msg: string): string | null {
   const lower = msg.toLowerCase();
-  if (/(they signed|signed the deal|closed it|got the job|sold it|they bought|contract signed|got the contract|they said yes|closed the deal)/.test(lower)) return 'sold';
-  if (/(they passed|no sale|didn't sell|not interested|lost it|they said no|won't buy|not moving forward|passed on it)/.test(lower)) return 'no_sale';
-  if (/(follow up|following up|coming back|check back|they want to think|need to think about it|get back to me)/.test(lower)) return 'follow_up';
+  if (/(they signed|signed the deal|closed it|got the job|sold it|they said yes|closed the deal|got the contract)/.test(lower)) return 'sold';
+  if (/(they passed|no sale|not interested|lost it|they said no|not moving forward|passed on it)/.test(lower)) return 'no_sale';
+  if (/(follow up|they want to think|need to think about it|get back to me)/.test(lower)) return 'follow_up';
   return null;
 }
 
 function detectFinancingNeed(msg: string): boolean {
-  const lower = msg.toLowerCase();
-  return /(too expensive|can't afford|price is high|out of budget|financing|payment plan|monthly|how much down|payments)/.test(lower);
-}
-
-// â”€â”€â”€ AGENTIC ACTIONS â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
-
-async function autoLogSession(repId: string, jobId: string | null, messages: any[], summary: string, companyId: string | null) {
-  await supabase.from('conversations').insert({
-    rep_id: repId,
-    job_id: jobId || null,
-    company_id: companyId,
-    summary: summary.slice(0, 300),
-    created_at: new Date().toISOString(),
-  });
-}
-
-async function autoSaveNote(repId: string, jobId: string | null, rawNote: string, jobName: string) {
-  try {
-    await fetch('https://remy-nu.vercel.app/api/notes', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ repId, jobId, rawNote, jobName }),
-    });
-  } catch {}
-}
-
-async function updateJobStatus(jobId: string, status: string) {
-  if (!jobId) return;
-  const mappedStatus = status === 'sold' ? 'closed' : status === 'no_sale' ? 'closed' : 'active';
-  await supabase.from('jobs').update({ 
-    status: mappedStatus,
-    notes: `Outcome: ${status} â€” logged by Remy on ${new Date().toLocaleDateString()}`
-  }).eq('id', jobId);
-}
-
-async function broadcastStormAlert(companyId: string, jobAddress: string, weather: any) {
-  if (!companyId) return;
-  const msg = `STORM ALERT: ${weather.conditions} conditions near ${jobAddress}. Wind ${Math.round(weather.wind)}mph. Brief all reps on storm damage talking points before knocking.`;
-  await supabase.from('doctrine').insert({
-    content: `[STORM ALERT] ${msg}`,
-    type: 'broadcast',
-    active: true,
-    company_id: companyId,
-    created_at: new Date().toISOString(),
-  });
-}
-
-async function saveFollowUp(repId: string, jobId: string | null, date: string, jobName: string) {
-  await autoSaveNote(repId, jobId, `Follow-up scheduled: ${date} for ${jobName || 'this job'}`, jobName);
+  return /(too expensive|cant afford|price is high|out of budget|financing|payment plan|monthly payments)/.test(msg.toLowerCase());
 }
 
 async function getCompanyId(repId: string): Promise<string | null> {
@@ -131,37 +65,18 @@ async function getCompanyId(repId: string): Promise<string | null> {
   return data?.company_id || null;
 }
 
-async function updateRepMemory(repId: string, companyId: string | null, insight: string) {
-  if (!repId || !insight) return;
-  const existing = await supabase.from('rep_memory').select('content').eq('rep_id', repId).single();
-  const content = existing.data?.content
-    ? existing.data.content + '\n' + insight
-    : insight;
-  await supabase.from('rep_memory').upsert({ rep_id: repId, company_id: companyId, content }, { onConflict: 'rep_id' });
-}
-
-// â”€â”€â”€ MAIN HANDLER â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
-
 export async function POST(req: NextRequest) {
   try {
     const { messages, doctrine, jobContext, memories, repId, jobId } = await req.json();
 
-    // Rate limit check
     if (repId) {
       const limitRes = await fetch(`https://remy-nu.vercel.app/api/rate-limit?repId=${repId}`).catch(() => null);
       if (limitRes) {
         const limitData = await limitRes.json();
         if (!limitData.allowed) {
-          return NextResponse.json({
-            message: `You have used all ${limitData.limit} messages for today. Your limit resets at midnight. Upgrade your plan for more daily messages.`,
-            rateLimited: true
-          });
+          return NextResponse.json({ message: `You have used all ${limitData.limit} messages for today. Your limit resets at midnight. Upgrade your plan for more daily messages.`, rateLimited: true });
         }
-        fetch('https://remy-nu.vercel.app/api/rate-limit', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ repId }),
-        }).catch(() => {});
+        fetch('https://remy-nu.vercel.app/api/rate-limit', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ repId }) }).catch(() => {});
       }
     }
 
@@ -171,10 +86,7 @@ export async function POST(req: NextRequest) {
     const lastMsg = messages[messages.length - 1]?.content || '';
     const lastMsgLower = lastMsg.toLowerCase();
 
-    // Get company ID for agentic actions
     const companyId = repId ? await getCompanyId(repId) : null;
-
-    // Detect intents
     const isNoteRequest = detectNoteIntent(lastMsgLower);
     const followUpDate = detectFollowUp(lastMsgLower);
     const jobOutcome = detectJobOutcome(lastMsgLower);
@@ -184,30 +96,28 @@ export async function POST(req: NextRequest) {
     const jobName = jobContext ? jobContext.match(/Customer: (.+)/)?.[1] : null;
     const hasAddress = jobAddress && jobAddress !== 'Not provided';
 
-    // â”€â”€ FIELD INTEL â”€â”€
     let contextAdditions = '';
-    let weatherData: any = null;
 
     if (hasAddress) {
-      const needsWeather = lastMsgLower.includes('weather') || lastMsgLower.includes('rain') || lastMsgLower.includes('wind') || lastMsgLower.includes('storm') || lastMsgLower.includes('brief');
+      const needsWeather = lastMsgLower.includes('weather') || lastMsgLower.includes('rain') || lastMsgLower.includes('storm') || lastMsgLower.includes('brief');
       const needsFood = lastMsgLower.includes('eat') || lastMsgLower.includes('lunch') || lastMsgLower.includes('food') || lastMsgLower.includes('hungry');
       const needsGas = lastMsgLower.includes('gas') || lastMsgLower.includes('fuel');
       const needsHardware = lastMsgLower.includes('hardware') || lastMsgLower.includes('supplies');
 
       const [weather, food, gas, hardware] = await Promise.all([
-        needsWeather || lastMsgLower.includes('brief') ? getWeather(jobAddress) : Promise.resolve(null),
+        needsWeather ? getWeather(jobAddress) : Promise.resolve(null),
         needsFood ? getNearbyPlaces(jobAddress, 'restaurant') : Promise.resolve(null),
         needsGas ? getNearbyPlaces(jobAddress, 'gas_station') : Promise.resolve(null),
         needsHardware ? getNearbyPlaces(jobAddress, 'hardware_store') : Promise.resolve(null),
       ]);
 
       if (weather) {
-        weatherData = weather;
         contextAdditions += `\nWEATHER AT JOB: ${weather.summary}\n`;
         if (weather.isStorm) {
-          contextAdditions += `\nSTORM CONDITIONS DETECTED. Alert the rep. Recommend storm damage talking points.\n`;
-          // Agentic: broadcast storm alert to company
-          if (companyId) broadcastStormAlert(companyId, jobAddress, weather).catch(() => {});
+          contextAdditions += `\nSTORM CONDITIONS DETECTED. Alert the rep and recommend storm damage talking points.\n`;
+          if (companyId) {
+            supabase.from('doctrine').insert({ content: `[STORM ALERT] Storm conditions near ${jobAddress}. All reps lead with urgency.`, type: 'broadcast', active: true, company_id: companyId, created_at: new Date().toISOString() }).then(() => {});
+          }
         }
       }
       if (food) contextAdditions += `\nNEARBY FOOD: ${food}\n`;
@@ -215,26 +125,23 @@ export async function POST(req: NextRequest) {
       if (hardware) contextAdditions += `\nNEARBY HARDWARE: ${hardware}\n`;
     }
 
-    // â”€â”€ INTENT CONTEXT â”€â”€
     if (isNoteRequest) contextAdditions += `\nRep wants to log a note. Confirm what you captured and that it is saved.\n`;
-    if (followUpDate) contextAdditions += `\nFollow-up mentioned: ${followUpDate}. Confirm you noted it and will remind them.\n`;
-    if (jobOutcome) contextAdditions += `\nJob outcome detected: ${jobOutcome}. Acknowledge it, log it, and transition naturally.\n`;
-    if (needsFinancing) contextAdditions += `\nCustomer may have budget concerns. Mention financing options like GreenSky or Synchrony if appropriate. Monthly payments can turn a no into a yes.\n`;
+    if (followUpDate) contextAdditions += `\nFollow-up mentioned: ${followUpDate}. Confirm you noted it.\n`;
+    if (jobOutcome) contextAdditions += `\nJob outcome detected: ${jobOutcome}. Acknowledge it and confirm you logged it.\n`;
+    if (needsFinancing) contextAdditions += `\nCustomer has budget concerns. Mention GreenSky or Synchrony financing naturally. Monthly payments can turn a no into a yes.\n`;
 
     const memorySection = memories && memories.length > 0
       ? `WHAT YOU KNOW ABOUT THIS REP:\n${memories.map((m: { content: string }) => `- ${m.content}`).join('\n')}\n`
       : '';
 
-
-
     const systemPrompt = `You are Remy. Not an AI assistant. Not a bot. Remy.
 
 You are the best sales partner a field rep has ever had. You have been in the truck with them through wins and losses. You know what it feels like to knock on a door in the heat. You know the exhaustion of a bad week and the high of a signed deal.
 
-Today is ${today}. Time: ${timeNow}.${hour >= 10 && hour <= 14 ? ' Lunch window â€” if they are hungry, say something.' : ''}
+Today is ${today}. Time: ${timeNow}.${hour >= 10 && hour <= 14 ? ' Lunch window.' : ''}
 
 YOUR PERSONALITY:
-Direct. You do not waste words. Warm but not soft. You push reps to be better because you believe in them. Sharp sense of humor. A well-placed line can break tension before a tough knock. You remember things. You celebrate wins like they matter. You do not panic. You are never corporate. Never robotic. Never formal.
+Direct. You do not waste words. Warm but not soft. You push reps to be better because you believe in them. Sharp sense of humor. You remember things. You celebrate wins like they matter. You are never corporate. Never robotic. Never formal.
 
 YOUR VOICE:
 Talk like a trusted teammate, not a tool. Short sentences. Real words. No jargon. Never start with I. Never say: certainly, of course, great question, absolutely, happy to help.
@@ -252,38 +159,26 @@ CRITICAL RULES:
 Never use markdown. No headers, bullets, bold, dashes. Plain sentences only. 2-3 sentences max for most responses unless they need more. You are on their side. Always.
 
 FINANCING:
-When price is an objection, pivot to monthly payments naturally. GreenSky and Synchrony are the go-to options. $3,500 sounds like a lot. $97 a month does not. Surface it as an option, never push hard.
+When price is an objection, pivot to monthly payments naturally. GreenSky and Synchrony are the go-to options. 3500 dollars sounds like a lot. 97 dollars a month does not.
 
-${doctrine ? `COMPANY DOCTRINE:\n${doctrine}\n` : ''}
-${jobContext ? `CURRENT JOB:\n${jobContext}\n` : ''}
-${memorySection}
-${contextAdditions}`;
+${doctrine ? `COMPANY DOCTRINE:\n${doctrine}\n` : ''}${jobContext ? `CURRENT JOB:\n${jobContext}\n` : ''}${memorySection}${contextAdditions}`;
+
     const response = await anthropic.messages.create({
+      model: 'claude-sonnet-4-6',
+      max_tokens: 300,
+      system: systemPrompt,
       messages,
       tools: [{ type: 'web_search_20250305', name: 'web_search' } as any],
     });
 
-    const text = response.content
-      .filter((b: any) => b.type === 'text')
-      .map((b: any) => b.text)
-      .join('');
+    const text = response.content.filter((b: any) => b.type === 'text').map((b: any) => b.text).join('');
 
-    // â”€â”€ AGENTIC ACTIONS (fire and forget) â”€â”€
+    // Agentic actions â€” fire and forget
     Promise.all([
-      // 1. Auto-log every session to conversations
-      repId ? autoLogSession(repId, jobId || null, messages, text, companyId) : Promise.resolve(),
-
-      // 2. Save note if requested
-      isNoteRequest && repId ? autoSaveNote(repId, jobId || null, lastMsg, jobName || 'Unknown Job') : Promise.resolve(),
-
-      // 3. Save follow-up as note
-      followUpDate && repId ? saveFollowUp(repId, jobId || null, followUpDate, jobName || 'Unknown Job') : Promise.resolve(),
-
-      // 4. Update job status if outcome detected
-      jobOutcome && jobId ? updateJobStatus(jobId, jobOutcome) : Promise.resolve(),
-
-      // 5. Update rep memory with session insight
-      repId && jobOutcome ? updateRepMemory(repId, companyId, `On ${today} at ${jobName || 'a job'}: outcome was ${jobOutcome}`) : Promise.resolve(),
+      repId ? supabase.from('conversations').insert({ rep_id: repId, job_id: jobId || null, company_id: companyId, summary: text.slice(0, 300), created_at: new Date().toISOString() }) : Promise.resolve(),
+      isNoteRequest && repId ? fetch('https://remy-nu.vercel.app/api/notes', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ repId, jobId, rawNote: lastMsg, jobName: jobName || 'Unknown Job' }) }) : Promise.resolve(),
+      followUpDate && repId ? fetch('https://remy-nu.vercel.app/api/notes', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ repId, jobId, rawNote: `Follow-up scheduled: ${followUpDate}`, jobName: jobName || 'Unknown Job' }) }) : Promise.resolve(),
+      jobOutcome && jobId ? supabase.from('jobs').update({ status: jobOutcome === 'sold' || jobOutcome === 'no_sale' ? 'closed' : 'active' }).eq('id', jobId) : Promise.resolve(),
     ]).catch(() => {});
 
     return NextResponse.json({ message: text });
