@@ -37,6 +37,23 @@ export default function NotesPage() {
   const [jobs, setJobs] = useState<Job[]>([]);
   const [selectedJob, setSelectedJob] = useState<string>('all');
   const [loading, setLoading] = useState(true);
+  useEffect(() => {
+    if (!isLoaded || !user) return;
+    loadData();
+  }, [isLoaded, user]);
+
+  const loadData = async () => {
+    setLoading(true);
+    const [notesRes, jobsRes] = await Promise.all([
+      fetch(/api/notes?repId=+user.id),
+      fetch('/api/jobs'),
+    ]);
+    const notesData = await notesRes.json();
+    const jobsData = await jobsRes.json();
+    setNotes(notesData.notes || []);
+    setJobs(jobsData.jobs || []);
+    setLoading(false);
+  };
   const [expanded, setExpanded] = useState<string | null>(null);
 
   useEffect(() => {
