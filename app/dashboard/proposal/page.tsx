@@ -1,0 +1,146 @@
+﻿'use client';
+import { useState, useEffect } from 'react';
+import { useUser } from '@clerk/nextjs';
+import { useSearchParams } from 'next/navigation';
+import { Suspense } from 'react';
+import Link from 'next/link';
+
+function ProposalContent() {
+  const { user, isLoaded } = useUser();
+  const searchParams = useSearchParams();
+  const jobId = searchParams.get('jobId');
+  const jobName = searchParams.get('jobName') || 'this job';
+  const [generating, setGenerating] = useState(false);
+  const [proposal, setProposal] = useState<any>(null);
+  const [error, setError] = useState('');
+  const [companyId, setCompanyId] = useState('');
+
+  useEffect(() => {
+    if (!isLoaded || !user) return;
+    fetch('/api/profile?clerkId=' + user.id)
+      .then(r => r.json())
+      .then(d => { if (d.profile?.company_id) setCompanyId(d.profile.company_id); })
+      .catch(() => {});
+  }, [isLoaded, user]);
+
+  const generate = async () => {
+    if (!user || !jobId) return;
+    setGenerating(true);
+    setError('');
+    try {
+      const res = await fetch('/api/agent/generate-proposal', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ jobId, repId: user.id, companyId }),
+      });
+      const data = await res.json();
+      if (data.success) setProposal(data.proposal);
+      else setError('Failed to generate proposal. Try again.');
+    } catch { setError('Something went wrong.'); }
+    setGenerating(false);
+  };
+
+  const printProposal = () => window.print();
+
+  return (
+    <div style={{ background: '#0b0f14', minHeight: '100vh', color: '#e8edf2', fontFamily: "'DM Sans', sans-serif" }}>
+      <style>{`
+        @import url('https://fonts.googleapis.com/css2?family=Syne:wght@700;800&family=DM+Sans:wght@300;400;500&display=swap');
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        @media print {
+          body { background: #fff !important; color: #000 !important; }
+          .no-print { display: none !important; }
+          .proposal-card { background: #fff !important; color: #000 !important; border: none !important; }
+        }
+      `}</style>
+
+      <div className="no-print" style={{ padding: '16px 20px', borderBottom: '1px solid rgba(255,255,255,0.07)', display: 'flex', alignItems: 'center', gap: '12px', background: 'rgba(11,15,20,0.98)', position: 'sticky', top: 0, zIndex: 50 }}>
+        <Link href="/dashboard" style={{ color: '#3d5268', textDecoration: 'none', fontSize: '0.88rem' }}>Back</Link>
+        <div style={{ fontFamily: "'Syne',sans-serif", fontWeight: 800, fontSize: '1.1rem' }}>Proposal Generator</div>
+      </div>
+
+      <div style={{ maxWidth: '700px', margin: '0 auto', padding: '32px 20px' }}>
+        {!proposal ? (
+          <div style={{ textAlign: 'center', padding: '60px 20px' }}>
+            <div style={{ fontFamily: "'Syne',sans-serif", fontWeight: 800, fontSize: '1.4rem', marginBottom: '12px' }}>{jobName}</div>
+            <div style={{ color: '#7a8fa4', fontSize: '0.88rem', fontWeight: 300, marginBottom: '32px', lineHeight: 1.7 }}>
+              Remy will generate a professional proposal based on your job notes and company doctrine. Takes about 10 seconds.
+            </div>
+            {error && <div style={{ color: '#e74c3c', fontSize: '0.82rem', marginBottom: '16px' }}>{error}</div>}
+            <button onClick={generate} disabled={generating || !jobId}
+              style={{ background: '#f07a2e', color: '#fff', border: 'none', borderRadius: '12px', padding: '16px 32px', fontFamily: "'DM Sans',sans-serif", fontSize: '1rem', fontWeight: 600, cursor: 'pointer', opacity: generating || !jobId ? 0.6 : 1 }}>
+              {generating ? 'Generating...' : 'Generate Proposal'}
+            </button>
+            {!jobId && <div style={{ color: '#3d5268', fontSize: '0.75rem', marginTop: '12px' }}>Open this page from a job to generate a proposal.</div>}
+          </div>
+        ) : (
+          <div>
+            <div className="no-print" style={{ display: 'flex', gap: '12px', marginBottom: '24px' }}>
+              <button onClick={printProposal} style={{ background: '#f07a2e', color: '#fff', border: 'none', borderRadius: '10px', padding: '12px 24px', fontFamily: "'DM Sans',sans-serif", fontSize: '0.88rem', fontWeight: 600, cursor: 'pointer' }}>
+                Print / Save PDF
+              </button>
+              <button onClick={() => setProposal(null)} style={{ background: 'rgba(255,255,255,0.06)', color: '#e8edf2', border: '1px solid rgba(255,255,255,0.08)', borderRadius: '10px', padding: '12px 24px', fontFamily: "'DM Sans',sans-serif", fontSize: '0.88rem', cursor: 'pointer' }}>
+                Regenerate
+              </button>
+            </div>
+
+            <div className="proposal-card" style={{ background: '#111820', border: '1px solid rgba(255,255,255,0.07)', borderRadius: '16px', padding: '40px', lineHeight: 1.8 }}>
+              <div style={{ borderBottom: '2px solid #f07a2e', paddingBottom: '20px', marginBottom: '28px' }}>
+                <div style={{ fontFamily: "'Syne',sans-serif", fontWeight: 800, fontSize: '1.6rem', marginBottom: '4px' }}>{proposal.title}</div>
+                <div style={{ color: '#7a8fa4', fontSize: '0.82rem' }}>{proposal.date}</div>
+              </div>
+
+              <div style={{ marginBottom: '24px' }}>
+                <div style={{ fontWeight: 600, marginBottom: '4px' }}>Prepared for:</div>
+                <div style={{ color: '#7a8fa4' }}>{proposal.customer}</div>
+                {proposal.address && <div style={{ color: '#7a8fa4', fontSize: '0.85rem' }}>{proposal.address}</div>}
+              </div>
+
+              <div style={{ marginBottom: '24px', color: '#c8d8e8', fontWeight: 300 }}>{proposal.intro}</div>
+
+              {proposal.scope && proposal.scope.length > 0 && (
+                <div style={{ marginBottom: '24px' }}>
+                  <div style={{ fontWeight: 600, marginBottom: '12px', fontSize: '0.82rem', letterSpacing: '0.1em', textTransform: 'uppercase', color: '#f07a2e' }}>Scope of Work</div>
+                  {proposal.scope.map((item: string, i: number) => (
+                    <div key={i} style={{ display: 'flex', gap: '10px', marginBottom: '8px', color: '#c8d8e8', fontWeight: 300 }}>
+                      <span style={{ color: '#f07a2e', flexShrink: 0 }}>â€¢</span>{item}
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              {proposal.quoteAmount && (
+                <div style={{ background: 'rgba(240,122,46,0.08)', border: '1px solid rgba(240,122,46,0.2)', borderRadius: '10px', padding: '16px 20px', marginBottom: '24px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <div style={{ fontWeight: 600 }}>Total Investment</div>
+                  <div style={{ fontFamily: "'Syne',sans-serif", fontWeight: 800, fontSize: '1.4rem', color: '#f07a2e' }}>{proposal.quoteAmount}</div>
+                </div>
+              )}
+
+              {proposal.financing && (
+                <div style={{ marginBottom: '24px', color: '#7a8fa4', fontSize: '0.85rem', fontWeight: 300, fontStyle: 'italic' }}>{proposal.financing}</div>
+              )}
+
+              {proposal.warranty && (
+                <div style={{ marginBottom: '24px' }}>
+                  <div style={{ fontWeight: 600, marginBottom: '8px', fontSize: '0.82rem', letterSpacing: '0.1em', textTransform: 'uppercase', color: '#4a9fd4' }}>Warranty</div>
+                  <div style={{ color: '#c8d8e8', fontWeight: 300 }}>{proposal.warranty}</div>
+                </div>
+              )}
+
+              <div style={{ color: '#c8d8e8', fontWeight: 300, marginBottom: '28px' }}>{proposal.closing}</div>
+
+              <div style={{ borderTop: '1px solid rgba(255,255,255,0.07)', paddingTop: '20px', display: 'flex', justifyContent: 'space-between', fontSize: '0.75rem', color: '#3d5268' }}>
+                <div>Valid until: {proposal.validUntil}</div>
+                <div>{proposal.company}</div>
+              </div>
+            </div>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+export default function ProposalPage() {
+  return <Suspense fallback={null}><ProposalContent /></Suspense>;
+}
