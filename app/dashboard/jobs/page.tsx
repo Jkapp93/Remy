@@ -373,6 +373,12 @@ export default function JobsPage() {
                     <div style={{ display:'flex', gap:'6px', alignItems:'center', flexShrink:0, flexWrap:'wrap', justifyContent:'flex-end' }} onClick={e => e.stopPropagation()}>
                       {job.status === 'active' && (
                         <Link href={`/dashboard/voice?jobId=${job.id}`} className="action-btn" style={{ background:'rgba(240,122,46,0.1)', borderColor:'rgba(240,122,46,0.2)', color:'#f07a2e', textDecoration:'none', display:'inline-block' }}>Talk to Remy</Link>
+                      {job.status === 'active' && (
+                        <Link href={'/dashboard/proposal?jobId=' + job.id + '&jobName=' + encodeURIComponent(job.customer_name)} className="action-btn" style={{ background:'rgba(155,89,182,0.1)', borderColor:'rgba(155,89,182,0.2)', color:'#9b59b6', textDecoration:'none', display:'inline-block' }}>Proposal</Link>
+                      )}
+                      {job.status === 'active' && (
+                        <Link href={'/dashboard/timeline?jobId=' + job.id + '&jobName=' + encodeURIComponent(job.customer_name)} className="action-btn" style={{ background:'rgba(74,159,212,0.1)', borderColor:'rgba(74,159,212,0.2)', color:'#4a9fd4', textDecoration:'none', display:'inline-block' }}>Timeline</Link>
+                      )}
                       )}
                       {job.status === 'active' && (
                         <button onClick={() => closeJob(job.id)} className="action-btn" style={{ background:'transparent', borderColor:'rgba(61,175,118,0.2)', color:'#3daf76' }}>Close</button>
