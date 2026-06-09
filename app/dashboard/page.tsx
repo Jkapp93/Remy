@@ -72,7 +72,7 @@ export default function DashboardPage() {
           </div>
         )}
 
-        <div style={{ display:'grid', gridTemplateColumns:'repeat(auto-fit, minmax(240px, 1fr))', gap:'16px' }}>
+        <div className="dashboard-grid" style={{ display:'grid', gridTemplateColumns:'repeat(auto-fit, minmax(240px, 1fr))', gap:'16px' }}>
           <Link href="/dashboard/jobs" className="card">
             <div className="card-icon" style={{ background:'rgba(255,255,255,0.05)', color:'#7a8fa4' }}>JOBS</div>
             <div style={{ fontFamily:"'Syne', sans-serif", fontWeight:700, fontSize:'1rem', marginBottom:'6px' }}>Jobs</div>
@@ -126,6 +126,18 @@ export default function DashboardPage() {
             <div className="card-icon" style={{ background:'rgba(74,159,212,0.05)', color:'#4a9fd4' }}>LIVE</div>
             <div style={{ fontFamily:"'Syne', sans-serif", fontWeight:700, fontSize:'1rem', marginBottom:'6px' }}>Broadcasts</div>
             <div style={{ color:'#7a8fa4', fontSize:'0.82rem', fontWeight:300 }}>View storm alerts and team broadcasts</div>
+          </Link>
+
+          <Link href="/dashboard/canvass" className="card">
+            <div className="card-icon" style={{ background:'rgba(61,175,118,0.05)', color:'#3daf76' }}>MAP</div>
+            <div style={{ fontFamily:"'Syne', sans-serif", fontWeight:700, fontSize:'1rem', marginBottom:'6px' }}>Canvass</div>
+            <div style={{ color:'#7a8fa4', fontSize:'0.82rem', fontWeight:300 }}>Track every door — knocked, interested, sold</div>
+          </Link>
+
+          <Link href="/dashboard/objections" className="card">
+            <div className="card-icon" style={{ background:'rgba(231,76,60,0.05)', color:'#e74c3c' }}>OBJ</div>
+            <div style={{ fontFamily:"'Syne', sans-serif", fontWeight:700, fontSize:'1rem', marginBottom:'6px' }}>Objection Coach</div>
+            <div style={{ color:'#7a8fa4', fontSize:'0.82rem', fontWeight:300 }}>Instant rebuttals for any pushback at the door</div>
           </Link>
         </div>
       </div>

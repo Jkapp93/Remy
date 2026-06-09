@@ -25,3 +25,92 @@ body {
     text-wrap: balance;
   }
 }
+
+/* ── Mobile polish ── */
+
+/* iOS safe area for bottom bar */
+.remy-page {
+  padding-bottom: env(safe-area-inset-bottom, 0px);
+}
+
+/* Minimum tap target size */
+button, a[role="button"], [onClick] {
+  -webkit-tap-highlight-color: transparent;
+}
+
+/* Prevent text size bump on iOS */
+html {
+  -webkit-text-size-adjust: 100%;
+}
+
+/* Smoother scrolling on iOS */
+body {
+  -webkit-overflow-scrolling: touch;
+}
+
+/* Voice page header wraps gracefully on narrow screens */
+@media (max-width: 390px) {
+  .voice-header-btns {
+    flex-wrap: wrap;
+    gap: 6px !important;
+  }
+  .voice-header-btns > * {
+    font-size: 0.65rem !important;
+  }
+}
+
+/* Job action buttons stack on very small screens */
+@media (max-width: 390px) {
+  .job-action-row {
+    flex-wrap: wrap !important;
+    gap: 6px !important;
+  }
+  .action-btn {
+    font-size: 0.7rem !important;
+    padding: 8px 10px !important;
+  }
+}
+
+/* Pipeline kanban scrolls smoothly on mobile */
+.pipeline-scroll {
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+  scroll-snap-type: x proximity;
+}
+.pipeline-scroll > * {
+  scroll-snap-align: start;
+}
+
+/* Dashboard cards: 2-col on small phones */
+@media (max-width: 500px) {
+  .dashboard-grid {
+    grid-template-columns: 1fr 1fr !important;
+    gap: 10px !important;
+  }
+  .dashboard-grid .card {
+    padding: 18px 14px !important;
+  }
+  .card-icon {
+    width: 32px !important;
+    height: 32px !important;
+    font-size: 0.65rem !important;
+    margin-bottom: 10px !important;
+  }
+}
+
+/* Input fields: font-size 16px prevents iOS zoom-on-focus */
+input[type="text"],
+input[type="email"],
+input[type="tel"],
+input[type="search"],
+textarea,
+select {
+  font-size: 16px !important;
+}
+
+/* Boss dashboard stats wrap on mobile */
+@media (max-width: 500px) {
+  .boss-stats-grid {
+    grid-template-columns: 1fr 1fr !important;
+  }
+}

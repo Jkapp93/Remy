@@ -2,12 +2,15 @@
 import { useState, useEffect } from 'react';
 
 export function InstallPrompt() {
+  const [mounted, setMounted] = useState(false);
   const [show, setShow] = useState(false);
   const [isIOS, setIsIOS] = useState(false);
   const [deferredPrompt, setDeferredPrompt] = useState<any>(null);
 
+  useEffect(() => { setMounted(true); }, []);
+
   useEffect(() => {
-    if (typeof window === 'undefined') return;
+    if (!mounted) return;
     if (localStorage.getItem('remy_install_dismissed')) return;
 
     const ua = navigator.userAgent.toLowerCase();
@@ -33,7 +36,7 @@ export function InstallPrompt() {
       const t = setTimeout(() => setShow(true), 2500);
       return () => clearTimeout(t);
     }
-  }, []);
+  }, [mounted]);
 
   const dismiss = () => {
     setShow(false);
@@ -48,7 +51,7 @@ export function InstallPrompt() {
     setDeferredPrompt(null);
   };
 
-  if (!show) return null;
+  if (!mounted || !show) return null;
 
   return (
     <div style={{

@@ -62,16 +62,30 @@ function ProposalContent() {
       <div style={{ maxWidth: '700px', margin: '0 auto', padding: '32px 20px' }}>
         {!proposal ? (
           <div style={{ textAlign: 'center', padding: '60px 20px' }}>
-            <div style={{ fontFamily: "'Syne',sans-serif", fontWeight: 800, fontSize: '1.4rem', marginBottom: '12px' }}>{jobName}</div>
-            <div style={{ color: '#7a8fa4', fontSize: '0.88rem', fontWeight: 300, marginBottom: '32px', lineHeight: 1.7 }}>
-              Remy will generate a professional proposal based on your job notes and company doctrine. Takes about 10 seconds.
-            </div>
-            {error && <div style={{ color: '#e74c3c', fontSize: '0.82rem', marginBottom: '16px' }}>{error}</div>}
-            <button onClick={generate} disabled={generating || !jobId}
-              style={{ background: '#f07a2e', color: '#fff', border: 'none', borderRadius: '12px', padding: '16px 32px', fontFamily: "'DM Sans',sans-serif", fontSize: '1rem', fontWeight: 600, cursor: 'pointer', opacity: generating || !jobId ? 0.6 : 1 }}>
-              {generating ? 'Generating...' : 'Generate Proposal'}
-            </button>
-            {!jobId && <div style={{ color: '#3d5268', fontSize: '0.75rem', marginTop: '12px' }}>Open this page from a job to generate a proposal.</div>}
+            {!jobId ? (
+              <div>
+                <div style={{ fontSize: '2.5rem', marginBottom: '16px' }}>📋</div>
+                <div style={{ fontFamily: "'Syne',sans-serif", fontWeight: 800, fontSize: '1.2rem', marginBottom: '10px' }}>No job selected</div>
+                <div style={{ color: '#7a8fa4', fontSize: '0.88rem', fontWeight: 300, marginBottom: '28px', lineHeight: 1.7 }}>Open a job first, then tap the Proposal button on that job.</div>
+                <Link href="/dashboard/jobs" style={{ background: '#f07a2e', color: '#fff', textDecoration: 'none', borderRadius: '10px', padding: '13px 28px', fontFamily: "'DM Sans',sans-serif", fontSize: '0.9rem', fontWeight: 600 }}>Go to Jobs</Link>
+              </div>
+            ) : (
+              <>
+                <div style={{ fontFamily: "'Syne',sans-serif", fontWeight: 800, fontSize: '1.4rem', marginBottom: '12px' }}>{jobName}</div>
+                <div style={{ color: '#7a8fa4', fontSize: '0.88rem', fontWeight: 300, marginBottom: '32px', lineHeight: 1.7 }}>
+                  Remy will generate a professional proposal based on your job notes and company doctrine. Takes about 10 seconds.
+                </div>
+                {error && (
+                  <div style={{ background: 'rgba(231,76,60,0.1)', border: '1px solid rgba(231,76,60,0.3)', borderRadius: '10px', padding: '14px 18px', color: '#e74c3c', fontSize: '0.88rem', marginBottom: '20px' }}>
+                    {error}
+                  </div>
+                )}
+                <button onClick={generate} disabled={generating}
+                  style={{ background: '#f07a2e', color: '#fff', border: 'none', borderRadius: '12px', padding: '16px 32px', fontFamily: "'DM Sans',sans-serif", fontSize: '1rem', fontWeight: 600, cursor: generating ? 'wait' : 'pointer', opacity: generating ? 0.7 : 1 }}>
+                  {generating ? '⏳ Generating...' : 'Generate Proposal'}
+                </button>
+              </>
+            )}
           </div>
         ) : (
           <div>

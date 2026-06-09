@@ -391,7 +391,7 @@ export default function JobsPage() {
             <div style={{ fontSize:'0.72rem', color:'#3d5268', marginBottom:'14px', fontWeight:300 }}>
               Tap a job to edit · use arrows to move through pipeline
             </div>
-            <div style={{ display:'flex', gap:'10px', overflowX:'auto', paddingBottom:'16px' }}>
+            <div className="pipeline-scroll" style={{ display:'flex', gap:'10px', overflowX:'auto', paddingBottom:'16px' }}>
               {PIPELINE_STAGES.map(stage => {
                 const stageJobs = jobs.filter(j => getJobStage(j.id) === stage.key);
                 return (
@@ -461,7 +461,7 @@ export default function JobsPage() {
                       {job.notes && <div style={{ fontSize:'0.75rem', color:'#3d5268', marginTop:'4px' }}>{job.notes}</div>}
                       <div style={{ fontSize:'0.62rem', color: job.status === 'active' ? '#3daf76' : '#3d5268', marginTop:'6px', textTransform:'uppercase', letterSpacing:'0.08em', fontWeight:600 }}>{job.status}</div>
                     </div>
-                    <div style={{ display:'flex', gap:'6px', alignItems:'center', flexShrink:0, flexWrap:'wrap', justifyContent:'flex-end' }} onClick={e => e.stopPropagation()}>
+                    <div className="job-action-row" style={{ display:'flex', gap:'6px', alignItems:'center', flexShrink:0, flexWrap:'wrap', justifyContent:'flex-end' }} onClick={e => e.stopPropagation()}>
                       {job.status === 'active' && (
                         <Link href={'/dashboard/voice?jobId=' + job.id} className="action-btn" style={{ background:'rgba(240,122,46,0.1)', borderColor:'rgba(240,122,46,0.2)', color:'#f07a2e', textDecoration:'none', display:'inline-block' }}>Talk to Remy</Link>
                       )}
