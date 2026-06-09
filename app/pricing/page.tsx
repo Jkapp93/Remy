@@ -67,7 +67,7 @@ export default function PricingPage() {
       const res = await fetch('/api/checkout', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ plan: planId, email: user?.primaryEmailAddress?.emailAddress }),
+        body: JSON.stringify({ plan: planId, email: user?.primaryEmailAddress?.emailAddress, clerkId: user?.id }),
       });
       const data = await res.json();
       if (data.url) window.location.href = data.url;

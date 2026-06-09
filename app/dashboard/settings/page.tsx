@@ -18,6 +18,8 @@ export default function SettingsPage() {
   const [testing, setTesting] = useState<string | null>(null);
   const [shareConversations, setShareConversations] = useState(true);
   const [savingShare, setSavingShare] = useState(false);
+  const [plan, setPlan] = useState<string | null>(null);
+  const [portalLoading, setPortalLoading] = useState(false);
 
   useEffect(() => {
     const saved = localStorage.getItem('remy_voice');
@@ -29,7 +31,20 @@ export default function SettingsPage() {
     if (!user) return;
     const res = await fetch(`/api/profile?clerkId=${user.id}`);
     const data = await res.json();
-    if (data.profile) setShareConversations(data.profile.share_conversations ?? true);
+    if (data.profile) {
+      setShareConversations(data.profile.share_conversations ?? true);
+      setPlan(data.profile.companies?.plan || null);
+    }
+  };
+
+  const openBillingPortal = async () => {
+    setPortalLoading(true);
+    try {
+      const res = await fetch('/api/billing-portal', { method: 'POST' });
+      const data = await res.json();
+      if (data.url) window.location.href = data.url;
+    } catch {}
+    setPortalLoading(false);
   };
 
   const toggleShare = async () => {
@@ -130,6 +145,37 @@ export default function SettingsPage() {
             >
               <div style={{ position:'absolute', top:'3px', left: shareConversations ? '27px' : '3px', width:'22px', height:'22px', borderRadius:'50%', background:'#fff', transition:'left 0.2s' }} />
             </button>
+          </div>
+        </div>
+
+        {/* Billing */}
+        <div style={{ marginBottom:'32px' }}>
+          <div style={{ fontSize:'0.68rem', fontWeight:600, letterSpacing:'0.12em', textTransform:'uppercase', color:'#3d5268', marginBottom:'14px' }}>Billing</div>
+          <div style={{ background:'#111820', border:'1px solid rgba(255,255,255,0.07)', borderRadius:'12px', padding:'18px 20px', display:'flex', justifyContent:'space-between', alignItems:'center', gap:'20px' }}>
+            <div>
+              <div style={{ fontWeight:500, fontSize:'0.9rem', marginBottom:'4px' }}>
+                {plan ? `${plan.charAt(0).toUpperCase() + plan.slice(1)} Plan` : 'Free Plan'}
+              </div>
+              <div style={{ fontSize:'0.78rem', color:'#3d5268', fontWeight:300 }}>
+                {plan && plan !== 'free' ? 'Manage subscription, invoices, and payment method.' : 'Upgrade to unlock more messages and team features.'}
+              </div>
+            </div>
+            {plan && plan !== 'free' ? (
+              <button
+                onClick={openBillingPortal}
+                disabled={portalLoading}
+                style={{ flexShrink:0, padding:'8px 18px', borderRadius:'8px', border:'1px solid rgba(255,255,255,0.12)', background:'transparent', color:'#e8edf2', fontFamily:"'DM Sans',sans-serif", fontSize:'0.8rem', fontWeight:500, cursor:'pointer', opacity: portalLoading ? 0.5 : 1 }}
+              >
+                {portalLoading ? 'Opening...' : 'Manage'}
+              </button>
+            ) : (
+              <a
+                href="/pricing"
+                style={{ flexShrink:0, padding:'8px 18px', borderRadius:'8px', border:'none', background:'#f07a2e', color:'#fff', fontFamily:"'DM Sans',sans-serif", fontSize:'0.8rem', fontWeight:500, textDecoration:'none' }}
+              >
+                Upgrade
+              </a>
+            )}
           </div>
         </div>
 

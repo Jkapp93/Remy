@@ -64,7 +64,7 @@ export async function POST(req: NextRequest) {
       process.env.NEXT_PUBLIC_SUPABASE_URL!,
       process.env.SUPABASE_SERVICE_ROLE_KEY!
     );
-    const { messages, doctrine, jobContext, memories, repId, jobId } = await req.json();
+    const { messages, doctrine, jobContext, memories, repId, jobId, systemOverride, isMorningBrief } = await req.json();
 
     // Auth: if repId is provided, the session must belong to that rep
     if (repId) {
@@ -188,8 +188,8 @@ ${trimmedDoctrine ? `COMPANY DOCTRINE:\n${trimmedDoctrine}\n` : ''}${jobContext 
     // Stream Claude response — client receives text as it generates
     const claudeStream = anthropic.messages.stream({
       model: 'claude-sonnet-4-6',
-      max_tokens: 300,
-      system: systemPrompt,
+      max_tokens: isMorningBrief ? 500 : 300,
+      system: systemOverride || systemPrompt,
       messages: trimmedMessages,
     });
 
