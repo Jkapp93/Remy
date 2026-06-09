@@ -30,8 +30,10 @@ export default function DemoPage() {
   const [started, setStarted] = useState(false);
   const [msgCount, setMsgCount] = useState(0);
   const [speaking, setSpeaking] = useState(false);
+  const [listening, setListening] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
   const audioRef = useRef<HTMLAudioElement | null>(null);
+  const recognitionRef = useRef<any>(null);
 
   useEffect(() => {
     scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: 'smooth' });
@@ -100,6 +102,30 @@ export default function DemoPage() {
       setMessages([...existingMessages, userMsg, { role: 'assistant', content: 'Something went wrong. Try again.' }]);
     }
     setLoading(false);
+  };
+
+  const toggleMic = () => {
+    if (listening) {
+      recognitionRef.current?.stop();
+      setListening(false);
+      return;
+    }
+    unlockAudio();
+    const SR = (window as any).webkitSpeechRecognition || (window as any).SpeechRecognition;
+    if (!SR) { alert('Use Chrome or Safari for voice input.'); return; }
+    const r = new SR();
+    recognitionRef.current = r;
+    r.continuous = false;
+    r.interimResults = false;
+    r.lang = 'en-US';
+    setListening(true);
+    r.start();
+    r.onresult = (e: any) => {
+      const transcript = e.results[0][0].transcript;
+      send(transcript, messages.filter(m => m.content));
+    };
+    r.onerror = () => setListening(false);
+    r.onend = () => setListening(false);
   };
 
   const unlockAudio = () => {
@@ -214,13 +240,20 @@ export default function DemoPage() {
       {started && !hitLimit && (
         <div style={{ padding:'12px 20px 20px', borderTop:'1px solid rgba(255,255,255,0.06)', background:'rgba(11,15,20,0.98)', flexShrink:0 }}>
           <div style={{ display:'flex', gap:'10px', alignItems:'center' }}>
+            <button
+              onClick={toggleMic}
+              disabled={loading}
+              style={{ width:'48px', height:'48px', borderRadius:'50%', border:`1px solid ${listening ? 'rgba(240,122,46,0.6)' : 'rgba(255,255,255,0.1)'}`, background: listening ? 'rgba(240,122,46,0.15)' : 'rgba(255,255,255,0.04)', color: listening ? '#f07a2e' : '#3d5268', fontSize:'1.1rem', cursor:'pointer', flexShrink:0, display:'flex', alignItems:'center', justifyContent:'center', animation: listening ? 'pulse 1s infinite' : 'none' }}
+            >
+              🎤
+            </button>
             <input
               value={input}
               onChange={e => setInput(e.target.value)}
               onKeyDown={e => { if (e.key === 'Enter' && input.trim()) send(input, messages.filter(m => m.content)); }}
-              placeholder="Ask Remy anything..."
-              disabled={loading}
-              style={{ flex:1, background:'#111820', border:'1px solid rgba(255,255,255,0.08)', borderRadius:'10px', padding:'13px 16px', color:'#e8edf2', fontFamily:"'DM Sans',sans-serif", fontSize:'0.9rem', outline:'none' }}
+              placeholder={listening ? 'Listening...' : 'Or type here...'}
+              disabled={loading || listening}
+              style={{ flex:1, background:'#111820', border:`1px solid ${listening ? 'rgba(240,122,46,0.3)' : 'rgba(255,255,255,0.08)'}`, borderRadius:'10px', padding:'13px 16px', color:'#e8edf2', fontFamily:"'DM Sans',sans-serif", fontSize:'0.9rem', outline:'none' }}
             />
             <button
               onClick={() => send(input, messages.filter(m => m.content))}
