@@ -128,6 +128,7 @@ export default function OnboardPage() {
   const [step, setStep] = useState(0);
   const [trade, setTrade] = useState('');
   const [companyName, setCompanyName] = useState('');
+  const [websiteUrl, setWebsiteUrl] = useState('');
   const [saving, setSaving] = useState(false);
   const [mounted, setMounted] = useState(false);
 
@@ -144,7 +145,7 @@ export default function OnboardPage() {
     if (!user || saving) return;
     setSaving(true);
     try {
-      await fetch('/api/onboard', {
+      const res = await fetch('/api/onboard', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -156,6 +157,15 @@ export default function OnboardPage() {
           role: 'owner',
         }),
       });
+      const data = await res.json();
+      // Fire-and-forget: generate doctrine from website in background
+      if (websiteUrl && data.companyId) {
+        fetch('/api/onboard-doctrine', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ websiteUrl, companyId: data.companyId, trade }),
+        }).catch(() => {});
+      }
       setStep(3);
     } catch { setSaving(false); }
   };
@@ -244,7 +254,11 @@ export default function OnboardPage() {
           </div>
           <input value={companyName} onChange={e => setCompanyName(e.target.value)}
             placeholder="Giza Roofing Solutions"
-            style={{ width: '100%', background: '#0d1117', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '12px', padding: '18px', color: '#e8edf2', fontFamily: "'DM Sans',sans-serif", fontSize: '1rem', fontWeight: 300, outline: 'none', marginBottom: '16px' }}
+            style={{ width: '100%', background: '#0d1117', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '12px', padding: '18px', color: '#e8edf2', fontFamily: "'DM Sans',sans-serif", fontSize: '1rem', fontWeight: 300, outline: 'none', marginBottom: '12px' }}
+          />
+          <input value={websiteUrl} onChange={e => setWebsiteUrl(e.target.value)}
+            placeholder="yoursite.com (optional — Remy will read it)"
+            style={{ width: '100%', background: '#0d1117', border: '1px solid rgba(255,255,255,0.07)', borderRadius: '12px', padding: '18px', color: '#e8edf2', fontFamily: "'DM Sans',sans-serif", fontSize: '1rem', fontWeight: 300, outline: 'none', marginBottom: '16px' }}
           />
           <button onClick={save} disabled={saving}
             style={{ background: '#f07a2e', color: '#fff', border: 'none', borderRadius: '12px', padding: '16px', fontFamily: "'Syne',sans-serif", fontSize: '0.95rem', fontWeight: 700, cursor: 'pointer', width: '100%', opacity: saving ? 0.6 : 1, marginBottom: '12px' }}>

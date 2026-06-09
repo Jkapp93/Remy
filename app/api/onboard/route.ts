@@ -58,7 +58,7 @@ export async function POST(req: NextRequest) {
       email: email || '',
     });
 
-    return NextResponse.json({ success: true, role: 'owner', redirect: '/boss' });
+    return NextResponse.json({ success: true, role: 'owner', redirect: '/boss', companyId: company.id });
   } catch (error) {
     console.error('Onboard error:', error);
     return NextResponse.json({ error: 'Failed' }, { status: 500 });

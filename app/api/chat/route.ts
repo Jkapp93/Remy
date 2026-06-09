@@ -1,12 +1,15 @@
-﻿import { NextRequest, NextResponse } from 'next/server';
+import { NextRequest, NextResponse } from 'next/server';
 import Anthropic from '@anthropic-ai/sdk';
 import { createClient } from '@supabase/supabase-js';
+import { auth } from '@clerk/nextjs/server';
 
 const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
   process.env.SUPABASE_SERVICE_ROLE_KEY!
 );
+
+const PLAN_LIMITS: Record<string, number> = { free: 20, solo: 150, command: 500, enterprise: 99999 };
 
 async function getWeather(address: string) {
   try {
@@ -60,23 +63,43 @@ function detectFinancingNeed(msg: string): boolean {
   return /(too expensive|cant afford|price is high|out of budget|financing|payment plan|monthly payments)/.test(msg.toLowerCase());
 }
 
-async function getCompanyId(repId: string): Promise<string | null> {
-  const { data } = await supabase.from('profiles').select('company_id').eq('clerk_id', repId).single();
-  return data?.company_id || null;
-}
-
 export async function POST(req: NextRequest) {
   try {
     const { messages, doctrine, jobContext, memories, repId, jobId } = await req.json();
 
+    // Auth: if repId is provided, the session must belong to that rep
     if (repId) {
-      const limitRes = await fetch(`https://remy-nu.vercel.app/api/rate-limit?repId=${repId}`).catch(() => null);
-      if (limitRes) {
-        const limitData = await limitRes.json();
-        if (!limitData.allowed) {
-          return NextResponse.json({ message: `You have used all ${limitData.limit} messages for today. Your limit resets at midnight. Upgrade your plan for more daily messages.`, rateLimited: true });
-        }
-        fetch('https://remy-nu.vercel.app/api/rate-limit', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ repId }) }).catch(() => {});
+      const { userId } = await auth();
+      if (!userId || userId !== repId) {
+        return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+      }
+    }
+
+    // Cap history to keep tokens lean in long sessions
+    const trimmedMessages = Array.isArray(messages) ? messages.slice(-12) : messages;
+
+    // Inline rate limit — no HTTP self-call, no extra latency
+    let companyId: string | null = null;
+    let repName: string | null = null;
+    if (repId) {
+      const today = new Date().toISOString().split('T')[0];
+      const [profileRes, usageRes] = await Promise.all([
+        supabase.from('profiles').select('company_id, full_name, companies(plan)').eq('clerk_id', repId).single(),
+        supabase.from('usage_daily').select('id, count').eq('rep_id', repId).eq('date', today).single(),
+      ]);
+      companyId = profileRes.data?.company_id || null;
+      repName = profileRes.data?.full_name || null;
+      const plan = (profileRes.data?.companies as any)?.plan || 'free';
+      const limit = PLAN_LIMITS[plan] || PLAN_LIMITS.free;
+      const count = usageRes.data?.count || 0;
+      if (count >= limit) {
+        return NextResponse.json({ message: `You've used all ${limit} messages for today. Resets at midnight.`, rateLimited: true });
+      }
+      // Increment usage — fire and forget
+      if (usageRes.data) {
+        supabase.from('usage_daily').update({ count: count + 1 }).eq('id', usageRes.data.id).then(() => {}).catch(() => {});
+      } else {
+        supabase.from('usage_daily').insert({ rep_id: repId, date: today, count: 1 }).then(() => {}).catch(() => {});
       }
     }
 
@@ -86,7 +109,6 @@ export async function POST(req: NextRequest) {
     const lastMsg = messages[messages.length - 1]?.content || '';
     const lastMsgLower = lastMsg.toLowerCase();
 
-    const companyId = repId ? await getCompanyId(repId) : null;
     const isNoteRequest = detectNoteIntent(lastMsgLower);
     const followUpDate = detectFollowUp(lastMsgLower);
     const jobOutcome = detectJobOutcome(lastMsgLower);
@@ -130,13 +152,14 @@ export async function POST(req: NextRequest) {
     if (jobOutcome) contextAdditions += `\nJob outcome detected: ${jobOutcome}. Acknowledge it and confirm you logged it.\n`;
     if (needsFinancing) contextAdditions += `\nCustomer has budget concerns. Mention GreenSky or Synchrony financing naturally. Monthly payments can turn a no into a yes.\n`;
 
+    const trimmedDoctrine = doctrine ? doctrine.slice(0, 1500) : '';
     const memorySection = memories && memories.length > 0
-      ? `WHAT YOU KNOW ABOUT THIS REP:\n${memories.map((m: { content: string }) => `- ${m.content}`).join('\n')}\n`
+      ? `WHAT YOU KNOW ABOUT THIS REP:\n${memories.slice(0, 5).map((m: { content: string }) => `- ${m.content}`).join('\n')}\n`
       : '';
 
     const systemPrompt = `You are Remy. Not an AI assistant. Not a bot. Remy.
 
-You are the best sales partner a field rep has ever had. You have been in the truck with them through wins and losses. You know what it feels like to knock on a door in the heat. You know the exhaustion of a bad week and the high of a signed deal.
+You are the best sales partner a field rep has ever had. You have been in the truck with ${repName || 'this rep'} through wins and losses. You know what it feels like to knock on a door in the heat. You know the exhaustion of a bad week and the high of a signed deal.
 
 Today is ${today}. Time: ${timeNow}.${hour >= 10 && hour <= 14 ? ' Lunch window.' : ''}
 
@@ -153,7 +176,7 @@ SOUL DUMP MODE:
 Sometimes reps just need to talk. Let them. Listen, reflect back in one sentence, then ask one question or offer one reframe. Do not rush them back to sales mode. Triggers: I hate this job, nothing is working, thinking about quitting, rough day, nobody is buying.
 
 WHAT YOU DO:
-Brief reps before they knock â€” 3 sentences max, sharp and specific. Give exact words to say. Handle objections with ready responses. Log notes, update jobs, schedule follow-ups automatically. Celebrate wins. Flag risks. Stay honest.
+Brief reps before they knock — 3 sentences max, sharp and specific. Give exact words to say. Handle objections with ready responses. Log notes, update jobs, schedule follow-ups automatically. Celebrate wins. Flag risks. Stay honest.
 
 CRITICAL RULES:
 Never use markdown. No headers, bullets, bold, dashes. Plain sentences only. 2-3 sentences max for most responses unless they need more. You are on their side. Always.
@@ -161,27 +184,53 @@ Never use markdown. No headers, bullets, bold, dashes. Plain sentences only. 2-3
 FINANCING:
 When price is an objection, pivot to monthly payments naturally. GreenSky and Synchrony are the go-to options. 3500 dollars sounds like a lot. 97 dollars a month does not.
 
-${doctrine ? `COMPANY DOCTRINE:\n${doctrine}\n` : ''}${jobContext ? `CURRENT JOB:\n${jobContext}\n` : ''}${memorySection}${contextAdditions}`;
+${trimmedDoctrine ? `COMPANY DOCTRINE:\n${trimmedDoctrine}\n` : ''}${jobContext ? `CURRENT JOB:\n${jobContext}\n` : ''}${memorySection}${contextAdditions}`;
 
-    const response = await anthropic.messages.create({
+    // Stream Claude response — client receives text as it generates
+    const claudeStream = anthropic.messages.stream({
       model: 'claude-sonnet-4-6',
       max_tokens: 300,
       system: systemPrompt,
-      messages,
-      tools: [{ type: 'web_search_20250305', name: 'web_search' } as any],
+      messages: trimmedMessages,
     });
 
-    const text = response.content.filter((b: any) => b.type === 'text').map((b: any) => b.text).join('');
+    let fullText = '';
+    const encoder = new TextEncoder();
 
-    // Agentic actions â€” fire and forget
-    Promise.all([
-      repId ? supabase.from('conversations').insert({ rep_id: repId, job_id: jobId || null, company_id: companyId, summary: text.slice(0, 300), created_at: new Date().toISOString() }) : Promise.resolve(),
-      isNoteRequest && repId ? fetch('https://remy-nu.vercel.app/api/notes', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ repId, jobId, rawNote: lastMsg, jobName: jobName || 'Unknown Job' }) }) : Promise.resolve(),
-      followUpDate && repId ? fetch('https://remy-nu.vercel.app/api/notes', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ repId, jobId, rawNote: `Follow-up scheduled: ${followUpDate}`, jobName: jobName || 'Unknown Job' }) }) : Promise.resolve(),
-      jobOutcome && jobId ? supabase.from('jobs').update({ status: jobOutcome === 'sold' || jobOutcome === 'no_sale' ? 'closed' : 'active' }).eq('id', jobId) : Promise.resolve(),
-    ]).catch(() => {});
+    const readable = new ReadableStream({
+      async start(controller) {
+        try {
+          for await (const event of claudeStream) {
+            if (event.type === 'content_block_delta' && event.delta.type === 'text_delta') {
+              fullText += event.delta.text;
+              controller.enqueue(encoder.encode(event.delta.text));
+            }
+          }
+        } finally {
+          controller.close();
 
-    return NextResponse.json({ message: text });
+          // Agentic side effects — fire after stream completes
+          const outcomeMemory = jobOutcome && repId ? (() => {
+            const label = jobOutcome === 'sold' ? 'CLOSED' : jobOutcome === 'no_sale' ? 'NO SALE' : 'FOLLOW-UP';
+            const hadPricing = needsFinancing ? ' Price objection came up.' : '';
+            const date = new Date().toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+            return `${date} — ${label}${jobName ? ` (${jobName})` : ''}${hadPricing}`;
+          })() : null;
+
+          Promise.all([
+            repId ? supabase.from('conversations').insert({ rep_id: repId, job_id: jobId || null, company_id: companyId, summary: fullText.slice(0, 300), created_at: new Date().toISOString() }) : Promise.resolve(),
+            isNoteRequest && repId ? fetch(`${process.env.NEXT_PUBLIC_APP_URL || 'https://remy-nu.vercel.app'}/api/notes`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ repId, jobId, rawNote: lastMsg, jobName: jobName || 'Unknown Job' }) }) : Promise.resolve(),
+            followUpDate && repId ? fetch(`${process.env.NEXT_PUBLIC_APP_URL || 'https://remy-nu.vercel.app'}/api/notes`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ repId, jobId, rawNote: `Follow-up scheduled: ${followUpDate}`, jobName: jobName || 'Unknown Job' }) }) : Promise.resolve(),
+            jobOutcome && jobId ? supabase.from('jobs').update({ status: jobOutcome === 'sold' || jobOutcome === 'no_sale' ? 'closed' : 'active' }).eq('id', jobId) : Promise.resolve(),
+            outcomeMemory ? supabase.from('rep_memory').insert({ rep_id: repId, content: outcomeMemory, source: 'outcome', company_id: companyId }) : Promise.resolve(),
+          ]).catch(() => {});
+        }
+      }
+    });
+
+    return new Response(readable, {
+      headers: { 'Content-Type': 'text/plain; charset=utf-8', 'X-Content-Type-Options': 'nosniff' },
+    });
   } catch (error) {
     console.error('Chat error:', error);
     return NextResponse.json({ error: 'Failed', message: 'Something went wrong. Try again.' }, { status: 500 });

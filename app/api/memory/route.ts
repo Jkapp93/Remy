@@ -1,6 +1,7 @@
 ﻿import { NextRequest, NextResponse } from 'next/server';
 import Anthropic from '@anthropic-ai/sdk';
 import { createClient } from '@supabase/supabase-js';
+import { auth } from '@clerk/nextjs/server';
 
 const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
 const supabase = createClient(
@@ -16,6 +17,10 @@ async function getCompanyId(repId: string): Promise<string | null> {
 export async function POST(req: NextRequest) {
   try {
     const { messages, repId, jobContext } = await req.json();
+    if (repId) {
+      const { userId } = await auth();
+      if (!userId || userId !== repId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    }
     if (!messages || messages.length < 2) return NextResponse.json({ success: false });
 
     const conversationText = messages
@@ -56,13 +61,14 @@ export async function GET(req: NextRequest) {
     const repId = searchParams.get('repId');
     if (!repId) return NextResponse.json({ memories: [] });
 
-    const { data } = await supabase
-      .from('rep_memory')
-      .select('content, created_at')
-      .eq('rep_id', repId)
-      .eq('source', 'conversation')
-      .order('created_at', { ascending: false })
-      .limit(10);
+    // Fetch synthesis insight first (highest signal), then recent conversation/outcome memories
+    const [synthData, recentData] = await Promise.all([
+      supabase.from('rep_memory').select('content').eq('rep_id', repId).eq('source', 'synthesis').single(),
+      supabase.from('rep_memory').select('content, created_at').eq('rep_id', repId).in('source', ['conversation', 'outcome']).order('created_at', { ascending: false }).limit(8),
+    ]);
+
+    const synthMemory = synthData.data ? [{ content: `[Pattern insight] ${synthData.data.content}` }] : [];
+    const data = [...synthMemory, ...(recentData.data || [])];
 
     return NextResponse.json({ memories: data || [] });
   } catch {
