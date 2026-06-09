@@ -217,7 +217,7 @@ export default function BossDashboard() {
             </button>
           </div>
         </div>
-
+        <Link href="/dashboard/broadcasts" style={{ fontSize:'0.75rem', color:'#3d5268', textDecoration:'none', display:'block', marginBottom:'16px' }}>View Broadcast History</Link>
         <div style={{ display:'flex', gap:'8px', marginBottom:'20px', flexWrap:'wrap' }}>
           {(['overview', 'jobs', 'conversations', 'doctrine', 'team'] as const).map(t => (
             <button key={t} className={`tab-btn ${activeTab === t ? 'active' : ''}`} onClick={() => setActiveTab(t)}>
