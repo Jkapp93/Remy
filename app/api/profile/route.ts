@@ -49,3 +49,16 @@ export async function PATCH(req: NextRequest) {
     .single();
   return NextResponse.json({ profile: data });
 }
+
+export async function PUT(req: NextRequest) {
+  const supabase = createClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.SUPABASE_SERVICE_ROLE_KEY!
+  );
+  const { clerkId, agentName } = await req.json();
+  if (!clerkId || !agentName) return NextResponse.json({ error: 'Missing fields' }, { status: 400 });
+  const { data: profile } = await supabase.from('profiles').select('company_id').eq('clerk_id', clerkId).single();
+  if (!profile?.company_id) return NextResponse.json({ error: 'No company' }, { status: 404 });
+  await supabase.from('companies').update({ agent_name: agentName }).eq('id', profile.company_id);
+  return NextResponse.json({ success: true });
+}

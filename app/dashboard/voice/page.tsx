@@ -410,7 +410,7 @@ function VoicePageInner() {
       {/* Header */}
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '14px 20px', borderBottom: `1px solid ${accentColor}22`, background: 'rgba(11,15,20,0.98)', position: 'relative', flexShrink: 0 }}>
         <Link href="/dashboard" style={{ fontFamily: "'Syne',sans-serif", fontSize: '1.1rem', fontWeight: 800, textDecoration: 'none', color: '#e8edf2' }}>
-          Remy<span style={{ color: accentColor }}>.</span>
+          {(profile?.companies as any)?.agent_name || 'Remy'}<span style={{ color: accentColor }}>.</span>
         </Link>
 
         <div style={{ display: 'flex', alignItems: 'center', gap: '8px', position: 'relative' }}>

@@ -20,6 +20,9 @@ export default function SettingsPage() {
   const [savingShare, setSavingShare] = useState(false);
   const [plan, setPlan] = useState<string | null>(null);
   const [portalLoading, setPortalLoading] = useState(false);
+  const [agentName, setAgentName] = useState('Remy');
+  const [savingAgent, setSavingAgent] = useState(false);
+  const [agentSaved, setAgentSaved] = useState(false);
 
   useEffect(() => {
     const saved = localStorage.getItem('remy_voice');
@@ -34,7 +37,21 @@ export default function SettingsPage() {
     if (data.profile) {
       setShareConversations(data.profile.share_conversations ?? true);
       setPlan(data.profile.companies?.plan || null);
+      setAgentName(data.profile.companies?.agent_name || 'Remy');
     }
+  };
+
+  const saveAgentName = async () => {
+    if (!user || !agentName.trim()) return;
+    setSavingAgent(true);
+    await fetch('/api/profile', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ clerkId: user.id, agentName: agentName.trim() }),
+    });
+    setSavingAgent(false);
+    setAgentSaved(true);
+    setTimeout(() => setAgentSaved(false), 2000);
   };
 
   const openBillingPortal = async () => {
@@ -103,6 +120,30 @@ export default function SettingsPage() {
 
       <div style={{ maxWidth:'720px', margin:'0 auto', padding:'32px 24px' }}>
         <h1 style={{ fontFamily:"'Syne', sans-serif", fontSize:'1.8rem', fontWeight:800, marginBottom:'28px' }}>Settings</h1>
+
+        {/* Agent Name */}
+        <div style={{ marginBottom:'32px' }}>
+          <div style={{ fontSize:'0.68rem', fontWeight:600, letterSpacing:'0.12em', textTransform:'uppercase', color:'#f07a2e', marginBottom:'14px' }}>Agent Name</div>
+          <div style={{ background:'#111820', border:'1px solid rgba(255,255,255,0.07)', borderRadius:'12px', padding:'18px 20px' }}>
+            <div style={{ fontSize:'0.82rem', color:'#7a8fa4', fontWeight:300, marginBottom:'12px' }}>This is what your AI field partner is called. Every rep on your team will use this name.</div>
+            <div style={{ display:'flex', gap:'10px', alignItems:'center' }}>
+              <input
+                value={agentName}
+                onChange={e => setAgentName(e.target.value)}
+                maxLength={20}
+                placeholder="Remy"
+                style={{ flex:1, background:'#0b0f14', border:'1px solid rgba(255,255,255,0.08)', borderRadius:'8px', padding:'11px 14px', color:'#e8edf2', fontFamily:"'DM Sans',sans-serif", fontSize:'0.9rem', outline:'none' }}
+              />
+              <button
+                onClick={saveAgentName}
+                disabled={savingAgent}
+                style={{ padding:'11px 20px', background: agentSaved ? 'rgba(61,175,118,0.15)' : '#f07a2e', border: agentSaved ? '1px solid rgba(61,175,118,0.4)' : 'none', borderRadius:'8px', color: agentSaved ? '#3daf76' : '#fff', fontFamily:"'DM Sans',sans-serif", fontSize:'0.82rem', fontWeight:600, cursor:'pointer', flexShrink:0, transition:'all 0.2s' }}
+              >
+                {agentSaved ? 'Saved ✓' : savingAgent ? 'Saving...' : 'Save'}
+              </button>
+            </div>
+          </div>
+        </div>
 
         {/* Voice Picker */}
         <div style={{ marginBottom:'32px' }}>

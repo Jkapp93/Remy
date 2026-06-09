@@ -7,7 +7,7 @@ export async function POST(req: NextRequest) {
       process.env.NEXT_PUBLIC_SUPABASE_URL!,
       process.env.SUPABASE_SERVICE_ROLE_KEY!
     );
-    const { clerkId, companyName, fullName, email, inviteToken } = await req.json();
+    const { clerkId, companyName, fullName, email, inviteToken, agentName } = await req.json();
 
     if (!clerkId) return NextResponse.json({ error: 'No clerkId' }, { status: 400 });
 
@@ -40,7 +40,7 @@ export async function POST(req: NextRequest) {
 
     const { data: company, error: companyErr } = await supabase
       .from('companies')
-      .insert({ name: companyName, owner_id: clerkId, plan: 'solo' })
+      .insert({ name: companyName, owner_id: clerkId, plan: 'solo', agent_name: agentName || 'Remy' })
       .select()
       .single();
 

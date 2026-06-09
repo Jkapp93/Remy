@@ -129,6 +129,7 @@ export default function OnboardPage() {
   const [trade, setTrade] = useState('');
   const [companyName, setCompanyName] = useState('');
   const [websiteUrl, setWebsiteUrl] = useState('');
+  const [agentName, setAgentName] = useState('Remy');
   const [saving, setSaving] = useState(false);
   const [mounted, setMounted] = useState(false);
 
@@ -155,6 +156,7 @@ export default function OnboardPage() {
           companyName: companyName || `${user.firstName || 'My'} Company`,
           trade,
           role: 'owner',
+          agentName: agentName.trim() || 'Remy',
         }),
       });
       const data = await res.json();
@@ -258,8 +260,14 @@ export default function OnboardPage() {
             style={{ width: '100%', background: '#0d1117', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '12px', padding: '18px', color: '#e8edf2', fontFamily: "'DM Sans',sans-serif", fontSize: '1rem', fontWeight: 300, outline: 'none', marginBottom: '12px' }}
           />
           <input value={websiteUrl} onChange={e => setWebsiteUrl(e.target.value)}
-            placeholder="yoursite.com (optional — Remy will read it)"
-            style={{ width: '100%', background: '#0d1117', border: '1px solid rgba(255,255,255,0.07)', borderRadius: '12px', padding: '18px', color: '#e8edf2', fontFamily: "'DM Sans',sans-serif", fontSize: '1rem', fontWeight: 300, outline: 'none', marginBottom: '16px' }}
+            placeholder="yoursite.com (optional — your agent will read it)"
+            style={{ width: '100%', background: '#0d1117', border: '1px solid rgba(255,255,255,0.07)', borderRadius: '12px', padding: '18px', color: '#e8edf2', fontFamily: "'DM Sans',sans-serif", fontSize: '1rem', fontWeight: 300, outline: 'none', marginBottom: '12px' }}
+          />
+          <div style={{ fontSize: '0.68rem', fontWeight: 500, letterSpacing: '0.1em', textTransform: 'uppercase', color: '#f07a2e', marginBottom: '8px', marginTop: '4px' }}>Name Your Agent</div>
+          <input value={agentName} onChange={e => setAgentName(e.target.value)}
+            placeholder="Remy"
+            maxLength={20}
+            style={{ width: '100%', background: '#0d1117', border: '1px solid rgba(240,122,46,0.2)', borderRadius: '12px', padding: '18px', color: '#e8edf2', fontFamily: "'DM Sans',sans-serif", fontSize: '1rem', fontWeight: 300, outline: 'none', marginBottom: '16px' }}
           />
           <button onClick={save} disabled={saving}
             style={{ background: '#f07a2e', color: '#fff', border: 'none', borderRadius: '12px', padding: '16px', fontFamily: "'Syne',sans-serif", fontSize: '0.95rem', fontWeight: 700, cursor: 'pointer', width: '100%', opacity: saving ? 0.6 : 1, marginBottom: '12px' }}>

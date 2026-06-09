@@ -80,15 +80,18 @@ export async function POST(req: NextRequest) {
     // Inline rate limit — no HTTP self-call, no extra latency
     let companyId: string | null = null;
     let repName: string | null = null;
+    let agentName = 'Remy';
     if (repId) {
       const today = new Date().toISOString().split('T')[0];
       const [profileRes, usageRes] = await Promise.all([
-        supabase.from('profiles').select('company_id, full_name, companies(plan)').eq('clerk_id', repId).single(),
+        supabase.from('profiles').select('company_id, full_name, companies(plan, agent_name)').eq('clerk_id', repId).single(),
         supabase.from('usage_daily').select('id, count').eq('rep_id', repId).eq('date', today).single(),
       ]);
       companyId = profileRes.data?.company_id || null;
       repName = profileRes.data?.full_name || null;
-      const plan = (profileRes.data?.companies as any)?.plan || 'free';
+      const companyData = profileRes.data?.companies as any;
+      const plan = companyData?.plan || 'free';
+      agentName = companyData?.agent_name || 'Remy';
       const limit = PLAN_LIMITS[plan] || PLAN_LIMITS.free;
       const count = usageRes.data?.count || 0;
       if (count >= limit) {
@@ -156,7 +159,7 @@ export async function POST(req: NextRequest) {
       ? `WHAT YOU KNOW ABOUT THIS REP:\n${memories.slice(0, 5).map((m: { content: string }) => `- ${m.content}`).join('\n')}\n`
       : '';
 
-    const systemPrompt = `You are Remy. Not an AI assistant. Not a bot. Remy.
+    const systemPrompt = `You are ${agentName}. Not an AI assistant. Not a bot. ${agentName}.
 
 You are the best sales partner a field rep has ever had. You have been in the truck with ${repName || 'this rep'} through wins and losses. You know what it feels like to knock on a door in the heat. You know the exhaustion of a bad week and the high of a signed deal.
 
