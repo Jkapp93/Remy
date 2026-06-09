@@ -380,7 +380,7 @@ export default function JobsPage() {
                       {job.status === 'active' && (
                         <Link href={'/dashboard/timeline?jobId=' + job.id + '&jobName=' + encodeURIComponent(job.customer_name)} className="action-btn" style={{ background:'rgba(74,159,212,0.1)', borderColor:'rgba(74,159,212,0.2)', color:'#4a9fd4', textDecoration:'none', display:'inline-block' }}>Timeline</Link>
                       )}
-                      )}
+
                       {job.status === 'active' && (
                         <button onClick={() => closeJob(job.id)} className="action-btn" style={{ background:'transparent', borderColor:'rgba(61,175,118,0.2)', color:'#3daf76' }}>Close</button>
                       )}
