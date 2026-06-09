@@ -32,7 +32,8 @@ export default function DemoPage() {
   const [status, setStatus] = useState<'idle' | 'thinking' | 'speaking' | 'listening'>('idle');
 
   const scrollRef = useRef<HTMLDivElement>(null);
-  const audioRef = useRef<HTMLAudioElement | null>(null);
+  const audioCtxRef = useRef<AudioContext | null>(null);
+  const sourceNodeRef = useRef<AudioBufferSourceNode | null>(null);
   const recognitionRef = useRef<any>(null);
   const messagesRef = useRef<Message[]>([]);
   const loadingRef = useRef(false);
@@ -48,8 +49,12 @@ export default function DemoPage() {
   }, [messages]);
 
   const unlockAudio = () => {
-    const silent = new Audio('data:audio/wav;base64,UklGRiQAAABXQVZFZm10IBAAAAABAAEARKwAAIhYAQACABAAZGF0YQAAAAA=');
-    silent.play().catch(() => {});
+    if (!audioCtxRef.current) {
+      audioCtxRef.current = new ((window as any).AudioContext || (window as any).webkitAudioContext)();
+    }
+    if (audioCtxRef.current?.state === 'suspended') {
+      audioCtxRef.current.resume();
+    }
   };
 
   const startListening = () => {
@@ -79,30 +84,30 @@ export default function DemoPage() {
   };
 
   const speak = async (text: string) => {
+    const ctx = audioCtxRef.current;
+    if (!ctx) { startListening(); return; }
     try {
+      if (ctx.state === 'suspended') await ctx.resume();
       const res = await fetch('/api/voice', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ text: text.slice(0, 400), voiceId: 'f786b574-daa5-4673-aa0c-cbe3e8534c02' }),
       });
       if (!res.ok) { startListening(); return; }
-      const blob = await res.blob();
-      const url = URL.createObjectURL(blob);
-      if (audioRef.current) audioRef.current.pause();
-      const audio = new Audio(url);
-      audioRef.current = audio;
+      const arrayBuffer = await res.arrayBuffer();
+      const audioBuffer = await ctx.decodeAudioData(arrayBuffer);
+      sourceNodeRef.current?.stop();
+      const source = ctx.createBufferSource();
+      source.buffer = audioBuffer;
+      source.connect(ctx.destination);
+      sourceNodeRef.current = source;
       speakingRef.current = true;
       setStatus('speaking');
-      audio.onended = () => {
-        speakingRef.current = false;
-        URL.revokeObjectURL(url);
-        startListening();
-      };
-      audio.onerror = () => {
+      source.onended = () => {
         speakingRef.current = false;
         startListening();
       };
-      await audio.play();
+      source.start(0);
     } catch {
       speakingRef.current = false;
       startListening();
@@ -161,7 +166,8 @@ export default function DemoPage() {
   };
 
   const stopSpeaking = () => {
-    if (audioRef.current) { audioRef.current.pause(); audioRef.current = null; }
+    try { sourceNodeRef.current?.stop(); } catch {}
+    sourceNodeRef.current = null;
     speakingRef.current = false;
     startListening();
   };
