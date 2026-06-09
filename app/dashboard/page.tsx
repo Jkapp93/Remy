@@ -1,17 +1,26 @@
 ﻿'use client';
 import { useUser, UserButton } from '@clerk/nextjs';
 import Link from 'next/link';
-import { useState, useEffect } from 'react';
+import { useState, useEffect, Suspense } from 'react';
+import { useRouter, useSearchParams } from 'next/navigation';
 
 type FollowUp = { id: string; summary: string; follow_up_date: string; job_id: string };
 
-export default function DashboardPage() {
+function DashboardInner() {
   const { user, isLoaded } = useUser();
+  const router = useRouter();
+  const searchParams = useSearchParams();
   const [followUps, setFollowUps] = useState<FollowUp[]>([]);
   const [jobs, setJobs] = useState<{id: string; customer_name: string}[]>([]);
+  const [showWelcome, setShowWelcome] = useState(false);
 
   useEffect(() => {
     if (!isLoaded || !user) return;
+    if (searchParams.get('welcome')) setShowWelcome(true);
+    fetch('/api/onboard-check?clerkId=' + user.id)
+      .then(r => r.json())
+      .then(d => { if (!d.onboarded) router.replace('/onboard'); })
+      .catch(() => {});
     Promise.all([
       fetch(`/api/notes?repId=${user.id}`).then(r => r.json()),
       fetch(`/api/jobs?clerkId=${user.id}`).then(r => r.json()),
@@ -42,6 +51,15 @@ export default function DashboardPage() {
       </div>
 
       <div style={{ padding:'40px 28px', maxWidth:'1000px', margin:'0 auto' }}>
+        {showWelcome && (
+          <div style={{ background:'rgba(61,175,118,0.08)', border:'1px solid rgba(61,175,118,0.25)', borderRadius:'12px', padding:'16px 20px', marginBottom:'28px', display:'flex', justifyContent:'space-between', alignItems:'center' }}>
+            <div>
+              <div style={{ fontWeight:600, fontSize:'0.9rem', color:'#3daf76', marginBottom:'2px' }}>You're in. Welcome to Remy.</div>
+              <div style={{ fontSize:'0.8rem', color:'#7a8fa4', fontWeight:300 }}>Add your first job and get your brief before you knock.</div>
+            </div>
+            <button onClick={() => setShowWelcome(false)} style={{ background:'transparent', border:'none', color:'#3d5268', cursor:'pointer', fontSize:'1rem', padding:'4px 8px' }}>×</button>
+          </div>
+        )}
         <div style={{ fontFamily:"'Syne', sans-serif", fontSize:'1.8rem', fontWeight:700, marginBottom:'6px' }}>
           Welcome back{user?.firstName ? `, ${user.firstName}` : ''}.
         </div>
@@ -143,4 +161,8 @@ export default function DashboardPage() {
       </div>
     </div>
   );
+}
+
+export default function DashboardPage() {
+  return <Suspense><DashboardInner /></Suspense>;
 }

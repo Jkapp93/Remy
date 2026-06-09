@@ -167,6 +167,7 @@ export default function OnboardPage() {
         }).catch(() => {});
       }
       setStep(3);
+      setTimeout(() => router.push('/dashboard/voice'), 2500);
     } catch { setSaving(false); }
   };
 
