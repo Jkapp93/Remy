@@ -1,6 +1,5 @@
-﻿import { useEffect, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useUser } from '@clerk/nextjs';
-import { supabase } from '../lib/supabase';
 
 export type Profile = {
   id: string;
@@ -24,12 +23,9 @@ export function useProfile() {
   }, [isLoaded, user]);
 
   const loadProfile = async () => {
-    const { data } = await supabase
-      .from('profiles')
-      .select('*, companies(*)')
-      .eq('clerk_id', user!.id)
-      .single();
-    setProfile(data as Profile | null);
+    const res = await fetch(`/api/profile?clerkId=${user!.id}`);
+    const data = await res.json();
+    setProfile(data.profile as Profile | null);
     setLoading(false);
   };
 

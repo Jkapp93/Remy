@@ -85,10 +85,23 @@ export async function GET(req: NextRequest) {
   const { searchParams } = new URL(req.url);
   const jobId = searchParams.get('jobId');
   const repId = searchParams.get('repId');
+  const companyId = searchParams.get('companyId');
 
-  let query = supabase.from('job_notes').select('*').order('created_at', { ascending: false }).limit(20);
-  if (jobId) query = query.eq('job_id', jobId);
-  else if (repId) query = query.eq('rep_id', repId);
+  let query = supabase.from('job_notes').select('*').order('created_at', { ascending: false }).limit(50);
+
+  if (jobId) {
+    query = query.eq('job_id', jobId);
+  } else if (companyId) {
+    const { data: profiles } = await supabase
+      .from('profiles')
+      .select('clerk_id')
+      .eq('company_id', companyId);
+    const repIds = (profiles || []).map((p: any) => p.clerk_id);
+    if (repIds.length > 0) query = query.in('rep_id', repIds);
+    else return NextResponse.json({ notes: [] });
+  } else if (repId) {
+    query = query.eq('rep_id', repId);
+  }
 
   const { data } = await query;
   return NextResponse.json({ notes: data || [] });

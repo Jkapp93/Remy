@@ -2,7 +2,6 @@
 import { UserProfile, useUser } from '@clerk/nextjs';
 import Link from 'next/link';
 import { useState, useEffect } from 'react';
-import { supabase } from '../../../lib/supabase';
 
 const VOICES = [
   { id: 'f786b574-daa5-4673-aa0c-cbe3e8534c02', name: 'Remy', description: 'Default voice' },
@@ -28,8 +27,9 @@ export default function SettingsPage() {
 
   const loadSharePref = async () => {
     if (!user) return;
-    const { data } = await supabase.from('profiles').select('share_conversations').eq('clerk_id', user.id).single();
-    if (data) setShareConversations(data.share_conversations ?? true);
+    const res = await fetch(`/api/profile?clerkId=${user.id}`);
+    const data = await res.json();
+    if (data.profile) setShareConversations(data.profile.share_conversations ?? true);
   };
 
   const toggleShare = async () => {
@@ -37,7 +37,11 @@ export default function SettingsPage() {
     setSavingShare(true);
     const newVal = !shareConversations;
     setShareConversations(newVal);
-    await supabase.from('profiles').update({ share_conversations: newVal }).eq('clerk_id', user.id);
+    await fetch('/api/profile', {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ clerkId: user.id, share_conversations: newVal }),
+    });
     setSavingShare(false);
   };
 

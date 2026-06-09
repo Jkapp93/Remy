@@ -2,7 +2,6 @@
 import { useState, useEffect, useRef } from 'react';
 import { useUser } from '@clerk/nextjs';
 import Link from 'next/link';
-import { supabase } from '../../../lib/supabase';
 import { useProfile } from '../../../lib/useProfile';
 
 const JOB_TYPES = [
@@ -17,6 +16,15 @@ const JOB_TYPES = [
 ];
 
 const getJobType = (type: string) => JOB_TYPES.find(t => t.value === type) || JOB_TYPES[JOB_TYPES.length - 1];
+
+const PIPELINE_STAGES = [
+  { key: 'lead',        label: 'Lead',        color: '#7a8fa4' },
+  { key: 'quoted',      label: 'Quoted',      color: '#4a9fd4' },
+  { key: 'signed',      label: 'Signed',      color: '#9b59b6' },
+  { key: 'scheduled',   label: 'Scheduled',   color: '#f1c40f' },
+  { key: 'in_progress', label: 'In Progress', color: '#f07a2e' },
+  { key: 'complete',    label: 'Complete',    color: '#3daf76' },
+];
 
 export default function JobsPage() {
   const { isLoaded } = useUser();
@@ -42,6 +50,8 @@ export default function JobsPage() {
   const [editType, setEditType] = useState('other');
   const [editSaving, setEditSaving] = useState(false);
   const [showMap, setShowMap] = useState(false);
+  const [viewMode, setViewMode] = useState<'list' | 'pipeline'>('list');
+  const [jobStages, setJobStagesState] = useState<Record<string, string>>({});
   const mapRef = useRef<HTMLDivElement>(null);
   const mapInstanceRef = useRef<any>(null);
   const markersRef = useRef<any[]>([]);
@@ -179,35 +189,34 @@ export default function JobsPage() {
 
   const loadJobs = async () => {
     setLoading(true);
-    let query = supabase.from('jobs').select('*').order('created_at', { ascending: false });
-    if (profile?.company_id) query = query.eq('company_id', profile.company_id);
-    const { data } = filter === 'active' ? await query.eq('status', 'active') : await query;
-    setJobs(data || []);
+    const params = new URLSearchParams();
+    if (profile?.company_id) params.set('companyId', profile.company_id);
+    if (filter === 'all') params.set('status', 'all');
+    const res = await fetch(`/api/jobs?${params}`);
+    const data = await res.json();
+    setJobs(data.jobs || []);
     setLoading(false);
   };
 
   const createJob = async () => {
     if (!customerName.trim()) return;
     setSaving(true);
-    await supabase.from('jobs').insert({ 
-      customer_name: customerName, 
-      address, 
-      notes, 
-      status: 'active', 
-      job_type: jobType,
-      company_id: profile?.company_id || null,
+    await fetch('/api/jobs', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ customer_name: customerName, address, notes, job_type: jobType, company_id: profile?.company_id || null }),
     });
     setCustomerName(''); setAddress(''); setNotes(''); setJobType('roofing');
     setShowNew(false); setSaving(false); loadJobs();
   };
 
   const closeJob = async (id: string) => {
-    await supabase.from('jobs').update({ status: 'closed' }).eq('id', id);
+    await fetch('/api/jobs', { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id, status: 'closed' }) });
     loadJobs();
   };
 
   const reopenJob = async (id: string) => {
-    await supabase.from('jobs').update({ status: 'active' }).eq('id', id);
+    await fetch('/api/jobs', { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id, status: 'active' }) });
     setFilter('active');
     loadJobs();
   };
@@ -223,22 +232,43 @@ export default function JobsPage() {
   const saveEdit = async () => {
     if (!editJob) return;
     setEditSaving(true);
-    await supabase.from('jobs').update({
-      customer_name: editName,
-      address: editAddress,
-      notes: editNotes,
-      job_type: editType,
-    }).eq('id', editJob.id);
+    await fetch('/api/jobs', {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ id: editJob.id, customer_name: editName, address: editAddress, notes: editNotes, job_type: editType }),
+    });
     setEditJob(null);
     setEditSaving(false);
     loadJobs();
   };
 
   const deleteJob = async (id: string) => {
-    await supabase.from('jobs').delete().eq('id', id);
+    await fetch(`/api/jobs?id=${id}`, { method: 'DELETE' });
     setConfirmDelete(null);
     loadJobs();
   };
+
+  // Pipeline stage — stored in localStorage, optionally synced to DB if stage column exists
+  useEffect(() => {
+    try {
+      const raw = localStorage.getItem('remy_job_stages');
+      if (raw) setJobStagesState(JSON.parse(raw));
+    } catch {}
+  }, []);
+
+  const setJobStage = (id: string, stage: string) => {
+    const updated = { ...jobStages, [id]: stage };
+    setJobStagesState(updated);
+    localStorage.setItem('remy_job_stages', JSON.stringify(updated));
+    // Try to persist to DB — silently ignores if column doesn't exist yet
+    fetch('/api/jobs', {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ id, stage }),
+    }).catch(() => {});
+  };
+
+  const getJobStage = (id: string) => jobStages[id] || 'lead';
 
   return (
     <div style={{ background: '#0b0f14', minHeight: '100vh', color: '#e8edf2', fontFamily: "'DM Sans', sans-serif" }}>
@@ -251,6 +281,11 @@ export default function JobsPage() {
         .type-select { width:100%; background:#0b0f14; border:1px solid rgba(255,255,255,0.08); border-radius:8px; padding:10px 14px; color:#e8edf2; font-family:'DM Sans',sans-serif; font-size:0.9rem; outline:none; margin-bottom:10px; cursor:pointer; }
         .legend-item { display:flex; align-items:center; gap:6px; font-size:0.72rem; color:#7a8fa4; }
         .legend-dot { width:10px; height:10px; border-radius:50%; flex-shrink:0; }
+        .pipeline-col { background:#111820; border:1px solid rgba(255,255,255,0.07); border-radius:12px; min-width:180px; max-width:200px; flex-shrink:0; display:flex; flex-direction:column; overflow:hidden; }
+        .pipeline-card { background:rgba(255,255,255,0.03); border:1px solid rgba(255,255,255,0.06); border-radius:8px; padding:10px 12px; margin:0 8px 8px; cursor:pointer; transition:border-color 0.15s; }
+        .pipeline-card:hover { border-color:rgba(255,255,255,0.12); }
+        .stage-btn { padding:4px 8px; border-radius:4px; font-size:0.62rem; font-weight:600; letter-spacing:0.05em; cursor:pointer; border:none; background:rgba(255,255,255,0.05); color:#3d5268; font-family:'DM Sans',sans-serif; transition:all 0.15s; }
+        .stage-btn:hover { background:rgba(255,255,255,0.1); color:#7a8fa4; }
       `}</style>
 
       {confirmDelete && (
@@ -297,9 +332,12 @@ export default function JobsPage() {
             <h1 style={{ fontFamily:"'Syne', sans-serif", fontSize:'1.8rem', fontWeight:800, marginBottom:'4px' }}>Jobs</h1>
             <p style={{ color:'#7a8fa4', fontSize:'0.88rem', fontWeight:300 }}>Your field jobs</p>
           </div>
-          <div style={{ display:'flex', gap:'8px' }}>
-            <button onClick={() => setShowMap(!showMap)} style={{ background: showMap ? 'rgba(74,159,212,0.1)' : 'transparent', border: showMap ? '1px solid rgba(74,159,212,0.3)' : '1px solid rgba(255,255,255,0.08)', borderRadius:'8px', padding:'9px 16px', color: showMap ? '#4a9fd4' : '#7a8fa4', fontFamily:"'DM Sans',sans-serif", fontSize:'0.82rem', cursor:'pointer', fontWeight:500 }}>
-              {showMap ? 'List View' : 'Map View'}
+          <div style={{ display:'flex', gap:'8px', flexWrap:'wrap' }}>
+            <button onClick={() => { setViewMode('pipeline'); setShowMap(false); }} style={{ background: viewMode === 'pipeline' ? 'rgba(155,89,182,0.1)' : 'transparent', border: viewMode === 'pipeline' ? '1px solid rgba(155,89,182,0.3)' : '1px solid rgba(255,255,255,0.08)', borderRadius:'8px', padding:'9px 16px', color: viewMode === 'pipeline' ? '#9b59b6' : '#7a8fa4', fontFamily:"'DM Sans',sans-serif", fontSize:'0.82rem', cursor:'pointer', fontWeight:500 }}>
+              Pipeline
+            </button>
+            <button onClick={() => { setShowMap(!showMap); setViewMode('list'); }} style={{ background: showMap ? 'rgba(74,159,212,0.1)' : 'transparent', border: showMap ? '1px solid rgba(74,159,212,0.3)' : '1px solid rgba(255,255,255,0.08)', borderRadius:'8px', padding:'9px 16px', color: showMap ? '#4a9fd4' : '#7a8fa4', fontFamily:"'DM Sans',sans-serif", fontSize:'0.82rem', cursor:'pointer', fontWeight:500 }}>
+              {showMap ? 'List' : 'Map'}
             </button>
             <button onClick={() => setShowNew(true)} style={{ background:'#f07a2e', color:'#fff', border:'none', padding:'10px 20px', borderRadius:'8px', fontFamily:"'DM Sans', sans-serif", fontSize:'0.85rem', fontWeight:500, cursor:'pointer' }}>+ New Job</button>
           </div>
@@ -347,13 +385,66 @@ export default function JobsPage() {
           </div>
         )}
 
-        {loading ? (
+        {/* Pipeline View */}
+        {viewMode === 'pipeline' && !loading && (
+          <div>
+            <div style={{ fontSize:'0.72rem', color:'#3d5268', marginBottom:'14px', fontWeight:300 }}>
+              Tap a job to edit · use arrows to move through pipeline
+            </div>
+            <div style={{ display:'flex', gap:'10px', overflowX:'auto', paddingBottom:'16px' }}>
+              {PIPELINE_STAGES.map(stage => {
+                const stageJobs = jobs.filter(j => getJobStage(j.id) === stage.key);
+                return (
+                  <div key={stage.key} className="pipeline-col">
+                    <div style={{ padding:'10px 12px 8px', borderBottom:'1px solid rgba(255,255,255,0.05)' }}>
+                      <div style={{ display:'flex', alignItems:'center', gap:'6px' }}>
+                        <div style={{ width:'8px', height:'8px', borderRadius:'50%', background: stage.color }} />
+                        <div style={{ fontSize:'0.72rem', fontWeight:600, color: stage.color, letterSpacing:'0.06em', textTransform:'uppercase' }}>{stage.label}</div>
+                        <div style={{ marginLeft:'auto', fontSize:'0.7rem', color:'#3d5268' }}>{stageJobs.length}</div>
+                      </div>
+                    </div>
+                    <div style={{ padding:'8px 0', flex:1 }}>
+                      {stageJobs.map(job => {
+                        const jt = getJobType(job.job_type);
+                        const stageIdx = PIPELINE_STAGES.findIndex(s => s.key === stage.key);
+                        return (
+                          <div key={job.id} className="pipeline-card" onClick={() => openEdit(job)}>
+                            <div style={{ display:'flex', alignItems:'center', gap:'6px', marginBottom:'4px' }}>
+                              <div style={{ width:'7px', height:'7px', borderRadius:'50%', background: jt.color, flexShrink:0 }} />
+                              <div style={{ fontSize:'0.82rem', fontWeight:500, color:'#e8edf2', overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{job.customer_name}</div>
+                            </div>
+                            <div style={{ fontSize:'0.68rem', color:'#3d5268', marginBottom:'8px' }}>{jt.label}</div>
+                            <div style={{ display:'flex', gap:'4px' }} onClick={e => e.stopPropagation()}>
+                              {stageIdx > 0 && (
+                                <button className="stage-btn" onClick={() => setJobStage(job.id, PIPELINE_STAGES[stageIdx - 1].key)}>←</button>
+                              )}
+                              {stageIdx < PIPELINE_STAGES.length - 1 && (
+                                <button className="stage-btn" style={{ marginLeft:'auto', color: PIPELINE_STAGES[stageIdx + 1].color, background: PIPELINE_STAGES[stageIdx + 1].color + '15' }} onClick={() => setJobStage(job.id, PIPELINE_STAGES[stageIdx + 1].key)}>
+                                  {PIPELINE_STAGES[stageIdx + 1].label} →
+                                </button>
+                              )}
+                            </div>
+                          </div>
+                        );
+                      })}
+                      {stageJobs.length === 0 && (
+                        <div style={{ padding:'12px', fontSize:'0.72rem', color:'#2d3f52', textAlign:'center' }}>Empty</div>
+                      )}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        )}
+
+        {viewMode === 'list' && loading ? (
           <div style={{ color:'#7a8fa4', textAlign:'center', padding:'40px' }}>Loading...</div>
-        ) : jobs.length === 0 ? (
+        ) : viewMode === 'list' && jobs.length === 0 ? (
           <div style={{ background:'#111820', border:'1px solid rgba(255,255,255,0.08)', borderRadius:'12px', padding:'48px', textAlign:'center' }}>
             <div style={{ color:'#7a8fa4', fontSize:'0.9rem', fontWeight:300 }}>{filter === 'active' ? 'No active jobs.' : 'No jobs yet.'} Create one above.</div>
           </div>
-        ) : (
+        ) : viewMode === 'list' ? (
           <div style={{ display:'flex', flexDirection:'column', gap:'10px' }}>
             {jobs.map(job => {
               const jt = getJobType(job.job_type);
@@ -394,7 +485,7 @@ export default function JobsPage() {
               );
             })}
           </div>
-        )}
+        ) : null}
       </div>
     </div>
   );

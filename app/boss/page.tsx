@@ -2,7 +2,6 @@
 import { useState, useEffect } from 'react';
 import { useUser, UserButton } from '@clerk/nextjs';
 import Link from 'next/link';
-import { supabase } from '../../lib/supabase';
 import Leaderboard from '../../components/Leaderboard';
 
 type Job = { id: string; customer_name: string; address: string; status: string; job_type: string; created_at: string };
@@ -35,6 +34,8 @@ export default function BossDashboard() {
   const [inviting, setInviting] = useState(false);
   const [inviteResult, setInviteResult] = useState('');
   const [selectedJob, setSelectedJob] = useState<Job | null>(null);
+  const [totalRevenue, setTotalRevenue] = useState(0);
+  const [totalQuotes, setTotalQuotes] = useState(0);
 
   useEffect(() => {
     if (!isLoaded || !user) return;
@@ -43,32 +44,34 @@ export default function BossDashboard() {
 
   const loadAll = async () => {
     setLoading(true);
-    const { data: profile } = await supabase
-      .from('profiles')
-      .select('*, companies(*)')
-      .eq('clerk_id', user!.id)
-      .single();
+    const res = await fetch(`/api/boss-data?clerkId=${user!.id}`);
+    const data = await res.json();
 
-    if (profile?.companies) setCompany(profile.companies as Company);
-    const companyId = profile?.company_id;
+    if (data.company) setCompany(data.company);
+    setJobs(data.jobs || []);
+    setDoctrine(data.doctrine || []);
+    setProfiles(data.profiles || []);
+    setInvites(data.invites || []);
 
-    const [jobData, docData, profileData, inviteData] = await Promise.all([
-      supabase.from('jobs').select('*').order('created_at', { ascending: false }).limit(50),
-      supabase.from('doctrine').select('*').eq('active', true).order('created_at', { ascending: false }),
-      companyId ? supabase.from('profiles').select('*').eq('company_id', companyId) : Promise.resolve({ data: [] }),
-      companyId ? supabase.from('invites').select('*').eq('company_id', companyId).order('created_at', { ascending: false }) : Promise.resolve({ data: [] }),
-    ]);
-
-    setJobs(jobData.data || []);
-    setDoctrine(docData.data || []);
-    setProfiles(profileData.data || []);
-    setInvites(inviteData.data || []);
-
-    // Load conversations separately with company filter
-    if (companyId) {
-      const convRes = await fetch(`/api/conversations?companyId=${companyId}`);
+    if (data.company?.id) {
+      const [convRes, notesRes] = await Promise.all([
+        fetch(`/api/conversations?companyId=${data.company.id}`),
+        fetch(`/api/notes?companyId=${data.company.id}`),
+      ]);
       const convData = await convRes.json();
+      const notesData = await notesRes.json();
       setConversations(convData.conversations || []);
+
+      let revenue = 0;
+      let quotes = 0;
+      for (const n of (notesData.notes || [])) {
+        if (n.quote_amount) {
+          const num = parseFloat(String(n.quote_amount).replace(/[$,\s]/g, ''));
+          if (!isNaN(num) && num > 0) { revenue += num; quotes++; }
+        }
+      }
+      setTotalRevenue(revenue);
+      setTotalQuotes(quotes);
     }
 
     setLoading(false);
@@ -77,14 +80,22 @@ export default function BossDashboard() {
   const broadcast = async () => {
     if (!broadcastMsg.trim() || !company) return;
     setBroadcasting(true);
-    await supabase.from('doctrine').insert({ content: `[BROADCAST] ${broadcastMsg}`, type: 'broadcast', active: true, company_id: company.id });
+    await fetch('/api/doctrine', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ content: `[BROADCAST] ${broadcastMsg}`, type: 'broadcast', company_id: company.id }),
+    });
     setBroadcastMsg('');
     setBroadcasting(false);
     loadAll();
   };
 
   const removeDoc = async (id: string) => {
-    await supabase.from('doctrine').update({ active: false }).eq('id', id);
+    await fetch('/api/doctrine', {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ id, active: false }),
+    });
     loadAll();
   };
 
@@ -196,7 +207,8 @@ export default function BossDashboard() {
 
         <div style={{ display:'grid', gridTemplateColumns:'repeat(auto-fit, minmax(160px, 1fr))', gap:'12px', marginBottom:'28px' }}>
           {[
-            { label: 'Active Jobs', value: activeJobs.length, color: '#3daf76' },
+            { label: 'Pipeline', value: `$${totalRevenue >= 1000 ? (totalRevenue / 1000).toFixed(0) + 'k' : totalRevenue.toLocaleString()}`, color: '#3daf76' },
+          { label: 'Active Jobs', value: activeJobs.length, color: '#f07a2e' },
             { label: 'Closed Jobs', value: closedJobs.length, color: '#3d5268' },
             { label: 'Conversations', value: conversations.length, color: '#f07a2e' },
             { label: 'Team Members', value: profiles.length, color: '#4a9fd4' },

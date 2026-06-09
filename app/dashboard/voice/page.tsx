@@ -2,7 +2,6 @@
 import { useState, useEffect, useRef, Suspense } from 'react';
 import { useUser } from '@clerk/nextjs';
 import { useSearchParams, useRouter } from 'next/navigation';
-import { supabase } from '../../../lib/supabase';
 import { useProfile } from '../../../lib/useProfile';
 import Link from 'next/link';
 
@@ -74,6 +73,15 @@ function VoicePageInner() {
 
   const accentColor = activeJob ? (JOB_TYPE_COLORS[activeJob.job_type] || '#f07a2e') : '#f07a2e';
 
+  const bustDoctrine = async () => {
+    if (!user) return;
+    const key = `remy_doctrine_${user.id}`;
+    localStorage.removeItem(key);
+    const fresh = await getCachedDoctrine(user.id);
+    setDoctrine(fresh);
+    doctrineRef.current = fresh;
+  };
+
   useEffect(() => {
     if (!isLoaded || !user) return;
     initPage();
@@ -107,16 +115,12 @@ function VoicePageInner() {
     const companyId = profile?.company_id;
 
     const [jobData, doctrine, memData] = await Promise.all([
-      supabase.from('jobs').select('*').eq('status', 'active').order('created_at', { ascending: false }).then(r => r.data || []),
+      fetch(`/api/jobs?clerkId=${clerkId}`).then(r => r.json()).then(d => d.jobs || []).catch(() => []),
       getCachedDoctrine(clerkId),
       fetch(`/api/memory?repId=${clerkId}`).then(r => r.json()).catch(() => ({ memories: [] })),
     ]);
 
-    const allJobs = companyId
-      ? jobData.filter((j: Job) => (j as any).company_id === companyId)
-      : jobData;
-
-    setJobs(allJobs);
+    setJobs(jobData);
     setDoctrine(doctrine);
     setMemories(memData.memories || []);
 
@@ -126,7 +130,7 @@ function VoicePageInner() {
       if (raw) {
         const { messages: saved, jobId, ts } = JSON.parse(raw);
         if (Date.now() - ts < SESSION_TTL && saved?.length > 0) {
-          const savedJob = jobId ? allJobs.find((j: Job) => j.id === jobId) : null;
+          const savedJob = jobId ? jobData.find((j: Job) => j.id === jobId) : null;
           if (savedJob) setActiveJob(savedJob);
           setMessages(saved);
           sessionMessagesRef.current = saved;
@@ -136,8 +140,8 @@ function VoicePageInner() {
     } catch {}
 
     const jobId = searchParams.get('jobId');
-    if (jobId && allJobs.length > 0) {
-      const found = allJobs.find((j: Job) => j.id === jobId);
+    if (jobId && jobData.length > 0) {
+      const found = jobData.find((j: Job) => j.id === jobId);
       if (found) {
         setActiveJob(found);
         setMessages([{ role: 'assistant', content: `${found.customer_name} loaded. Tap Brief Me when you are ready.` }]);
@@ -145,8 +149,8 @@ function VoicePageInner() {
       }
     }
 
-    if (allJobs.length > 0) {
-      setMessages([{ role: 'assistant', content: `Hey. ${allJobs.length} active job${allJobs.length > 1 ? 's' : ''} today. Select a job and tap Brief Me, or tap Brief My Day to get started.` }]);
+    if (jobData.length > 0) {
+      setMessages([{ role: 'assistant', content: `Hey. ${jobData.length} active job${jobData.length > 1 ? 's' : ''} today. Select a job and tap Brief Me, or tap Brief My Day to get started.` }]);
     } else {
       setMessages([{ role: 'assistant', content: `Hey. No active jobs yet. Create one in Jobs and I will brief you before you knock.` }]);
     }
@@ -438,6 +442,7 @@ function VoicePageInner() {
               {activeJob ? activeJob.customer_name : '+ Job'}
             </span>
           </div>
+          <button onClick={bustDoctrine} title="Refresh company playbook" style={{ padding: '6px 10px', borderRadius: '20px', border: '1px solid rgba(255,255,255,0.08)', background: 'transparent', color: '#3d5268', fontFamily: "'DM Sans',sans-serif", fontSize: '0.7rem', cursor: 'pointer' }}>↻</button>
           <Link href="/dashboard" style={{ fontSize: '0.78rem', color: '#3d5268', textDecoration: 'none' }}>Back</Link>
 
           {showJobPicker && (

@@ -32,3 +32,20 @@ export async function POST(req: NextRequest) {
     .single();
   return NextResponse.json({ profile: data });
 }
+
+export async function PATCH(req: NextRequest) {
+  const supabase = createClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.SUPABASE_SERVICE_ROLE_KEY!
+  );
+  const body = await req.json();
+  const { clerkId, ...fields } = body;
+  if (!clerkId) return NextResponse.json({ error: 'No clerkId' }, { status: 400 });
+  const { data } = await supabase
+    .from('profiles')
+    .update(fields)
+    .eq('clerk_id', clerkId)
+    .select()
+    .single();
+  return NextResponse.json({ profile: data });
+}

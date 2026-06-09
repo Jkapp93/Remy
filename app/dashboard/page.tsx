@@ -1,9 +1,26 @@
 ﻿'use client';
 import { useUser, UserButton } from '@clerk/nextjs';
 import Link from 'next/link';
+import { useState, useEffect } from 'react';
+
+type FollowUp = { id: string; summary: string; follow_up_date: string; job_id: string };
 
 export default function DashboardPage() {
-  const { user } = useUser();
+  const { user, isLoaded } = useUser();
+  const [followUps, setFollowUps] = useState<FollowUp[]>([]);
+  const [jobs, setJobs] = useState<{id: string; customer_name: string}[]>([]);
+
+  useEffect(() => {
+    if (!isLoaded || !user) return;
+    Promise.all([
+      fetch(`/api/notes?repId=${user.id}`).then(r => r.json()),
+      fetch(`/api/jobs?clerkId=${user.id}`).then(r => r.json()),
+    ]).then(([notesData, jobsData]) => {
+      const pending = (notesData.notes || []).filter((n: any) => n.follow_up_date);
+      setFollowUps(pending.slice(0, 5));
+      setJobs(jobsData.jobs || []);
+    }).catch(() => {});
+  }, [isLoaded, user]);
 
   return (
     <div style={{ background: '#0b0f14', minHeight: '100vh', color: '#e8edf2', fontFamily: "'DM Sans', sans-serif" }}>
@@ -31,6 +48,29 @@ export default function DashboardPage() {
         <div style={{ color:'#7a8fa4', fontSize:'0.95rem', marginBottom:'40px', fontWeight:300 }}>
           Your AI field companion is ready.
         </div>
+
+        {followUps.length > 0 && (
+          <div style={{ marginBottom: '32px', background: 'rgba(74,159,212,0.04)', border: '1px solid rgba(74,159,212,0.15)', borderRadius: '12px', padding: '18px 20px' }}>
+            <div style={{ fontSize: '0.68rem', fontWeight: 600, letterSpacing: '0.12em', textTransform: 'uppercase', color: '#4a9fd4', marginBottom: '12px' }}>
+              Pending Follow-ups
+            </div>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '0' }}>
+              {followUps.map(fu => {
+                const jobName = jobs.find(j => j.id === fu.job_id)?.customer_name || 'Job';
+                return (
+                  <Link key={fu.id} href="/dashboard/notes" style={{ textDecoration: 'none', display: 'flex', alignItems: 'flex-start', gap: '10px', padding: '10px 0', borderBottom: '1px solid rgba(255,255,255,0.04)' }}>
+                    <div style={{ marginTop: '2px', width: '7px', height: '7px', borderRadius: '50%', background: '#4a9fd4', flexShrink: 0 }} />
+                    <div style={{ flex: 1 }}>
+                      <div style={{ fontSize: '0.82rem', color: '#e8edf2', fontWeight: 500 }}>{jobName}</div>
+                      <div style={{ fontSize: '0.75rem', color: '#7a8fa4', marginTop: '2px', fontWeight: 300 }}>{fu.summary || 'Follow-up scheduled'}</div>
+                    </div>
+                    <div style={{ fontSize: '0.7rem', color: '#4a9fd4', fontWeight: 500, flexShrink: 0, whiteSpace: 'nowrap' }}>{fu.follow_up_date}</div>
+                  </Link>
+                );
+              })}
+            </div>
+          </div>
+        )}
 
         <div style={{ display:'grid', gridTemplateColumns:'repeat(auto-fit, minmax(240px, 1fr))', gap:'16px' }}>
           <Link href="/dashboard/jobs" className="card">
