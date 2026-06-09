@@ -3,6 +3,7 @@ import { useState, useEffect } from 'react';
 import { useUser, UserButton } from '@clerk/nextjs';
 import Link from 'next/link';
 import { supabase } from '../../lib/supabase';
+import Leaderboard from '../../components/Leaderboard';
 
 type Job = { id: string; customer_name: string; address: string; status: string; job_type: string; created_at: string };
 type Conversation = { id: string; summary: string; created_at: string; rep_id: string };
@@ -269,6 +270,7 @@ export default function BossDashboard() {
                 </div>
               </div>
             )}
+              <div style={{ marginTop:'16px' }}><Leaderboard companyId={company?.id || ''} /></div>
 
             {activeTab === 'jobs' && (
               <div style={{ background:'#111820', border:'1px solid rgba(255,255,255,0.07)', borderRadius:'12px', padding:'20px' }}>

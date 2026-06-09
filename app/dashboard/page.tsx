@@ -69,6 +69,24 @@ export default function DashboardPage() {
             <div style={{ fontFamily:"'Syne', sans-serif", fontWeight:700, fontSize:'1rem', marginBottom:'6px', color:'#4a9fd4' }}>Command Center</div>
             <div style={{ color:'#7a8fa4', fontSize:'0.82rem', fontWeight:300 }}>Boss view: jobs, conversations, doctrine</div>
           </Link>
+
+          <Link href="/dashboard/outcome" className="card">
+            <div className="card-icon" style={{ background:'rgba(61,175,118,0.05)', color:'#3daf76' }}>WIN</div>
+            <div style={{ fontFamily:"'Syne', sans-serif", fontWeight:700, fontSize:'1rem', marginBottom:'6px' }}>Log Outcome</div>
+            <div style={{ color:'#7a8fa4', fontSize:'0.82rem', fontWeight:300 }}>Mark a job as won, lost, or follow-up</div>
+          </Link>
+
+          <Link href="/dashboard/proposal" className="card">
+            <div className="card-icon" style={{ background:'rgba(155,89,182,0.05)', color:'#9b59b6' }}>PROP</div>
+            <div style={{ fontFamily:"'Syne', sans-serif", fontWeight:700, fontSize:'1rem', marginBottom:'6px' }}>Proposals</div>
+            <div style={{ color:'#7a8fa4', fontSize:'0.82rem', fontWeight:300 }}>Generate professional proposals</div>
+          </Link>
+
+          <Link href="/dashboard/broadcasts" className="card">
+            <div className="card-icon" style={{ background:'rgba(74,159,212,0.05)', color:'#4a9fd4' }}>LIVE</div>
+            <div style={{ fontFamily:"'Syne', sans-serif", fontWeight:700, fontSize:'1rem', marginBottom:'6px' }}>Broadcasts</div>
+            <div style={{ color:'#7a8fa4', fontSize:'0.82rem', fontWeight:300 }}>View storm alerts and team broadcasts</div>
+          </Link>
         </div>
       </div>
     </div>
