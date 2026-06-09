@@ -2,13 +2,12 @@
 import { createClient } from '@supabase/supabase-js';
 import Anthropic from '@anthropic-ai/sdk';
 
-const supabase = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY!
-);
-const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
-
 export async function POST(req: NextRequest) {
+  const supabase = createClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.SUPABASE_SERVICE_ROLE_KEY!
+  );
+  const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
   try {
     const { repId, jobId, rawNote, jobName } = await req.json();
     if (!repId || !rawNote) return NextResponse.json({ error: 'Missing fields' }, { status: 400 });
@@ -79,6 +78,10 @@ Return: { "summary": "one sentence", "quote_amount": "dollar amount or null", "f
 }
 
 export async function GET(req: NextRequest) {
+  const supabase = createClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.SUPABASE_SERVICE_ROLE_KEY!
+  );
   const { searchParams } = new URL(req.url);
   const jobId = searchParams.get('jobId');
   const repId = searchParams.get('repId');

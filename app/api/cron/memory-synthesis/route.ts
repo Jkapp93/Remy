@@ -2,19 +2,15 @@ import { NextRequest, NextResponse } from 'next/server';
 import Anthropic from '@anthropic-ai/sdk';
 import { createClient } from '@supabase/supabase-js';
 
-const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
-const supabase = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY!
-);
-
-// Vercel cron calls this with a secret header — reject everything else
-function isAuthorized(req: NextRequest): boolean {
-  return req.headers.get('authorization') === `Bearer ${process.env.CRON_SECRET}`;
-}
-
 export async function GET(req: NextRequest) {
-  if (!isAuthorized(req)) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  if (req.headers.get('authorization') !== `Bearer ${process.env.CRON_SECRET}`) {
+    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  }
+  const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
+  const supabase = createClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.SUPABASE_SERVICE_ROLE_KEY!
+  );
 
   try {
     const sevenDaysAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString();
@@ -29,7 +25,8 @@ export async function GET(req: NextRequest) {
     if (!activeReps?.length) return NextResponse.json({ processed: 0 });
 
     // Deduplicate rep IDs
-    const unique = [...new Map(activeReps.map(r => [r.rep_id, r])).values()];
+    const seen = new Set<string>();
+    const unique = activeReps.filter(r => { if (seen.has(r.rep_id)) return false; seen.add(r.rep_id); return true; });
     let processed = 0;
 
     for (const { rep_id, company_id } of unique) {

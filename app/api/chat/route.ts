@@ -3,12 +3,6 @@ import Anthropic from '@anthropic-ai/sdk';
 import { createClient } from '@supabase/supabase-js';
 import { auth } from '@clerk/nextjs/server';
 
-const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
-const supabase = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY!
-);
-
 const PLAN_LIMITS: Record<string, number> = { free: 20, solo: 150, command: 500, enterprise: 99999 };
 
 async function getWeather(address: string) {
@@ -65,6 +59,11 @@ function detectFinancingNeed(msg: string): boolean {
 
 export async function POST(req: NextRequest) {
   try {
+    const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
+    const supabase = createClient(
+      process.env.NEXT_PUBLIC_SUPABASE_URL!,
+      process.env.SUPABASE_SERVICE_ROLE_KEY!
+    );
     const { messages, doctrine, jobContext, memories, repId, jobId } = await req.json();
 
     // Auth: if repId is provided, the session must belong to that rep
@@ -97,9 +96,9 @@ export async function POST(req: NextRequest) {
       }
       // Increment usage — fire and forget
       if (usageRes.data) {
-        supabase.from('usage_daily').update({ count: count + 1 }).eq('id', usageRes.data.id).then(() => {}).catch(() => {});
+        void supabase.from('usage_daily').update({ count: count + 1 }).eq('id', usageRes.data.id);
       } else {
-        supabase.from('usage_daily').insert({ rep_id: repId, date: today, count: 1 }).then(() => {}).catch(() => {});
+        void supabase.from('usage_daily').insert({ rep_id: repId, date: today, count: 1 });
       }
     }
 

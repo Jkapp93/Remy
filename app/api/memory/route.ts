@@ -3,19 +3,18 @@ import Anthropic from '@anthropic-ai/sdk';
 import { createClient } from '@supabase/supabase-js';
 import { auth } from '@clerk/nextjs/server';
 
-const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
-const supabase = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY!
-);
-
-async function getCompanyId(repId: string): Promise<string | null> {
+async function getCompanyId(repId: string, supabase: any): Promise<string | null> {
   const { data } = await supabase.from('profiles').select('company_id').eq('clerk_id', repId).single();
   return data?.company_id || null;
 }
 
 export async function POST(req: NextRequest) {
   try {
+    const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
+    const supabase = createClient(
+      process.env.NEXT_PUBLIC_SUPABASE_URL!,
+      process.env.SUPABASE_SERVICE_ROLE_KEY!
+    );
     const { messages, repId, jobContext } = await req.json();
     if (repId) {
       const { userId } = await auth();
@@ -37,7 +36,7 @@ export async function POST(req: NextRequest) {
     });
 
     const summary = summaryResponse.content[0].type === 'text' ? summaryResponse.content[0].text : '';
-    const companyId = repId ? await getCompanyId(repId) : null;
+    const companyId = repId ? await getCompanyId(repId, supabase) : null;
 
     if (repId && summary) {
       await supabase.from('rep_memory').insert({
@@ -57,6 +56,10 @@ export async function POST(req: NextRequest) {
 
 export async function GET(req: NextRequest) {
   try {
+    const supabase = createClient(
+      process.env.NEXT_PUBLIC_SUPABASE_URL!,
+      process.env.SUPABASE_SERVICE_ROLE_KEY!
+    );
     const { searchParams } = new URL(req.url);
     const repId = searchParams.get('repId');
     if (!repId) return NextResponse.json({ memories: [] });

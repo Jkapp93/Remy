@@ -2,18 +2,17 @@
 import { createClient } from '@supabase/supabase-js';
 import { Resend } from 'resend';
 
-const supabase = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY!
-);
-const resend = new Resend(process.env.RESEND_API_KEY);
-
 function generateToken() {
   return Math.random().toString(36).substring(2, 10).toUpperCase();
 }
 
 export async function POST(req: NextRequest) {
   try {
+    const supabase = createClient(
+      process.env.NEXT_PUBLIC_SUPABASE_URL!,
+      process.env.SUPABASE_SERVICE_ROLE_KEY!
+    );
+    const resend = new Resend(process.env.RESEND_API_KEY);
     const { email, companyId, companyName, role = 'rep' } = await req.json();
     if (!email || !companyId) return NextResponse.json({ error: 'Missing fields' }, { status: 400 });
 

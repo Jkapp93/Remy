@@ -1,11 +1,6 @@
 ﻿import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 
-const supabase = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY!
-);
-
 const LIMITS: Record<string, number> = {
   free: 20,
   solo: 150,
@@ -14,6 +9,10 @@ const LIMITS: Record<string, number> = {
 };
 
 export async function GET(req: NextRequest) {
+  const supabase = createClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.SUPABASE_SERVICE_ROLE_KEY!
+  );
   const { searchParams } = new URL(req.url);
   const repId = searchParams.get('repId');
   if (!repId) return NextResponse.json({ allowed: false, remaining: 0 });
@@ -45,6 +44,10 @@ export async function GET(req: NextRequest) {
 }
 
 export async function POST(req: NextRequest) {
+  const supabase = createClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.SUPABASE_SERVICE_ROLE_KEY!
+  );
   const { repId } = await req.json();
   if (!repId) return NextResponse.json({ success: false });
 
