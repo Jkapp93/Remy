@@ -54,7 +54,7 @@ function DashboardInner() {
         {showWelcome && (
           <div style={{ background:'rgba(61,175,118,0.08)', border:'1px solid rgba(61,175,118,0.25)', borderRadius:'12px', padding:'16px 20px', marginBottom:'28px', display:'flex', justifyContent:'space-between', alignItems:'center' }}>
             <div>
-              <div style={{ fontWeight:600, fontSize:'0.9rem', color:'#3daf76', marginBottom:'2px' }}>You're in. Welcome to Remy.</div>
+              <div style={{ fontWeight:600, fontSize:'0.9rem', color:'#3daf76', marginBottom:'2px' }}>You&apos;re in. Welcome to Remy.</div>
               <div style={{ fontSize:'0.8rem', color:'#7a8fa4', fontWeight:300 }}>Add your first job and get your brief before you knock.</div>
             </div>
             <button onClick={() => setShowWelcome(false)} style={{ background:'transparent', border:'none', color:'#3d5268', cursor:'pointer', fontSize:'1rem', padding:'4px 8px' }}>×</button>
