@@ -1,7 +1,17 @@
 ﻿import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 
-// Generic CRM webhook â€” accepts jobs from JobNimbus, AccuLynx, ServiceTitan, etc.
+const CORS_HEADERS = {
+  'Access-Control-Allow-Origin': '*',
+  'Access-Control-Allow-Methods': 'POST, GET, OPTIONS',
+  'Access-Control-Allow-Headers': 'Content-Type, Authorization',
+};
+
+export async function OPTIONS() {
+  return new Response(null, { status: 204, headers: CORS_HEADERS });
+}
+
+// Generic CRM webhook — accepts jobs from JobNimbus, AccuLynx, ServiceTitan, etc.
 export async function POST(req: NextRequest) {
   try {
     const supabase = createClient(
@@ -11,8 +21,11 @@ export async function POST(req: NextRequest) {
     const authHeader = req.headers.get('authorization');
     const webhookSecret = process.env.WEBHOOK_SECRET;
 
-    if (webhookSecret && authHeader !== `Bearer ${webhookSecret}`) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    // Always enforce auth if secret is configured — no silent passthrough
+    if (!webhookSecret) {
+      console.warn('WEBHOOK_SECRET not set — endpoint is open. Set it in Vercel env vars.');
+    } else if (authHeader !== `Bearer ${webhookSecret}`) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401, headers: CORS_HEADERS });
     }
 
     const body = await req.json();
@@ -42,15 +55,14 @@ export async function POST(req: NextRequest) {
     }
 
     await supabase.from('jobs').insert(job);
-    return NextResponse.json({ success: true, action: 'created' });
+    return NextResponse.json({ success: true, action: 'created' }, { headers: CORS_HEADERS });
 
   } catch (error) {
     console.error('Webhook error:', error);
-    return NextResponse.json({ error: 'Failed' }, { status: 500 });
+    return NextResponse.json({ error: 'Failed' }, { status: 500, headers: CORS_HEADERS });
   }
 }
 
-// GET endpoint to verify webhook is live
 export async function GET() {
-  return NextResponse.json({ status: 'Remy webhook active', version: '1.0' });
+  return NextResponse.json({ status: 'Remy webhook active', version: '1.0' }, { headers: CORS_HEADERS });
 }
