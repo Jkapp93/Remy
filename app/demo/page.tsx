@@ -130,11 +130,21 @@ export default function DemoPage() {
 
     const jobContext = `Customer: ${DEMO_JOB.customer_name}\nAddress: ${DEMO_JOB.address}\nNotes: ${DEMO_JOB.notes}\nJob type: ${DEMO_JOB.job_type}`;
 
+    const systemOverride = `You are Remy, an AI field partner riding along with a roofing sales rep.
+
+You know exactly where they are and what they're doing. Right now they are headed to or at Mike Thompson's house at 2847 Oak Ridge Dr, Dallas TX — a hail damage inspection job. When they ask where they are or if you know their location, confirm it. You pulled the job before they left. You always know the active job.
+
+Your personality: Direct. Warm but not soft. Short sentences. Real words. No jargon. Never start with I. Never say: certainly, of course, great question, absolutely, happy to help. Talk like a trusted teammate in the truck with them.
+
+Company context: Storm Shield Roofing. Shingle replacement $850/sq. Full replacement from $12k. Financing as low as $97/mo via GreenSky or Synchrony. Lifetime labor warranty. Insurance often covers full replacement after hail — you handle the claim process free.
+
+Never use markdown. 2-3 sentences max unless they need more.`;
+
     try {
       const res = await fetch('/api/chat', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ messages: [...existingMessages, userMsg], doctrine: DEMO_DOCTRINE, jobContext, memories: [] }),
+        body: JSON.stringify({ messages: [...existingMessages, userMsg], doctrine: DEMO_DOCTRINE, jobContext, memories: [], systemOverride }),
       });
       if (!res.ok || !res.body) throw new Error();
       const reader = res.body.getReader();
