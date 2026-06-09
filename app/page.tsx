@@ -24,6 +24,7 @@ export default function LandingPage() {
         <div style={{ display:'flex', gap:'12px', alignItems:'center' }}>
           <Link href="/pricing" style={{ color:'#7a8fa4', textDecoration:'none', fontSize:'0.9rem' }}>Pricing</Link>
           <Link href="/auth" style={{ color:'#7a8fa4', textDecoration:'none', fontSize:'0.9rem' }}>Sign In</Link>
+          <Link href="/demo" style={{ color:'#f07a2e', textDecoration:'none', fontSize:'0.88rem', fontWeight:600, border:'1px solid rgba(240,122,46,0.3)', padding:'10px 20px', borderRadius:'10px' }}>Try Demo</Link>
           <Link href="/onboard" className="cta-btn" style={{ padding:'10px 20px', fontSize:'0.88rem' }}>Get Started</Link>
         </div>
       </nav>
@@ -40,8 +41,8 @@ export default function LandingPage() {
           Remy rides along with your field reps. Pre-job briefs, live objection coaching, weather intel, and proactive suggestions. All hands-free, all voice-first.
         </p>
         <div style={{ display:'flex', gap:'12px', justifyContent:'center', flexWrap:'wrap' }}>
-          <Link href="/onboard" className="cta-btn">Start Free Trial</Link>
-          <Link href="/pricing" className="cta-btn-outline">See Pricing</Link>
+          <Link href="/demo" className="cta-btn">See Remy Live</Link>
+          <Link href="/onboard" className="cta-btn-outline">Start Free Trial</Link>
         </div>
       </div>
 
