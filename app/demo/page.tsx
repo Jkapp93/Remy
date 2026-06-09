@@ -32,7 +32,6 @@ export default function DemoPage() {
   const [speaking, setSpeaking] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
   const audioRef = useRef<HTMLAudioElement | null>(null);
-  const audioUnlockedRef = useRef(false);
 
   useEffect(() => {
     scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: 'smooth' });
@@ -104,10 +103,8 @@ export default function DemoPage() {
   };
 
   const unlockAudio = () => {
-    if (audioUnlockedRef.current) return;
     const silent = new Audio('data:audio/wav;base64,UklGRiQAAABXQVZFZm10IBAAAAABAAEARKwAAIhYAQACABAAZGF0YQAAAAA=');
     silent.play().catch(() => {});
-    audioUnlockedRef.current = true;
   };
 
   const startDemo = async () => {
