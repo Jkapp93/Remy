@@ -2,7 +2,10 @@
 import { createClient } from '@supabase/supabase-js';
 import { Resend } from 'resend';
 
-export async function POST(req: NextRequest) {
+export async function GET(req: NextRequest) {
+  if (req.headers.get('authorization') !== `Bearer ${process.env.CRON_SECRET}`) {
+    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  }
   try {
     const supabase = createClient(
       process.env.NEXT_PUBLIC_SUPABASE_URL!,
