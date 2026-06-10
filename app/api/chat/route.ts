@@ -124,9 +124,9 @@ export async function POST(req: NextRequest) {
 
     if (hasAddress) {
       const needsWeather = lastMsgLower.includes('weather') || lastMsgLower.includes('rain') || lastMsgLower.includes('storm') || lastMsgLower.includes('brief');
-      const needsFood = lastMsgLower.includes('eat') || lastMsgLower.includes('lunch') || lastMsgLower.includes('food') || lastMsgLower.includes('hungry');
-      const needsGas = lastMsgLower.includes('gas') || lastMsgLower.includes('fuel');
-      const needsHardware = lastMsgLower.includes('hardware') || lastMsgLower.includes('supplies');
+      const needsFood = lastMsgLower.includes('eat') || lastMsgLower.includes('lunch') || lastMsgLower.includes('food') || lastMsgLower.includes('hungry') || lastMsgLower.includes('restaurant') || lastMsgLower.includes('chick') || lastMsgLower.includes('burger') || lastMsgLower.includes('closest') || lastMsgLower.includes('near me') || lastMsgLower.includes('nearby') || lastMsgLower.includes('where') || lastMsgLower.includes('grab');
+      const needsGas = lastMsgLower.includes('gas') || lastMsgLower.includes('fuel') || lastMsgLower.includes('station');
+      const needsHardware = lastMsgLower.includes('hardware') || lastMsgLower.includes('supplies') || lastMsgLower.includes('home depot') || lastMsgLower.includes('lowes');
 
       const [weather, food, gas, hardware] = await Promise.all([
         needsWeather ? getWeather(jobAddress) : Promise.resolve(null),
@@ -185,6 +185,9 @@ Never use markdown. No headers, bullets, bold, dashes. Plain sentences only. 2-3
 
 FINANCING:
 When price is an objection, pivot to monthly payments naturally. GreenSky and Synchrony are the go-to options. 3500 dollars sounds like a lot. 97 dollars a month does not.
+
+LOCATION & NEARBY:
+You use the active job address as the rep's location. If they ask for nearby food, gas, hardware, or anything local and a job is loaded, you have that data. If no job is loaded and they ask about location, tell them to tap the job selector and pick their current job so you can pull up what's nearby.
 
 ${trimmedDoctrine ? `COMPANY DOCTRINE:\n${trimmedDoctrine}\n` : ''}${jobContext ? `CURRENT JOB:\n${jobContext}\n` : ''}${memorySection}${contextAdditions}`;
 
