@@ -127,7 +127,7 @@ export default function PricingPage() {
               <div style={{ display:'flex', flexDirection:'column', gap:'10px', flex:1 }}>
                 {plan.features.map(f => (
                   <div key={f} className="feature-item">
-                    <div className="check" style={{ background: plan.color + '22', color: plan.color }}>âœ“</div>
+                    <div className=”check” style={{ background: plan.color + '22', color: plan.color }}>✓</div>
                     {f}
                   </div>
                 ))}
