@@ -19,12 +19,17 @@ async function getWeather(address: string) {
   } catch { return null; }
 }
 
-async function getNearbyPlaces(address: string, type: string) {
+async function getNearbyPlaces(address: string, type: string, directLat?: number, directLng?: number) {
   try {
-    const geoRes = await fetch(`https://maps.googleapis.com/maps/api/geocode/json?address=${encodeURIComponent(address)}&key=${process.env.NEXT_PUBLIC_GOOGLE_MAPS_KEY}`);
-    const geoData = await geoRes.json();
-    if (!geoData.results?.[0]) return null;
-    const { lat, lng } = geoData.results[0].geometry.location;
+    let lat: number, lng: number;
+    if (directLat && directLng) {
+      lat = directLat; lng = directLng;
+    } else {
+      const geoRes = await fetch(`https://maps.googleapis.com/maps/api/geocode/json?address=${encodeURIComponent(address)}&key=${process.env.NEXT_PUBLIC_GOOGLE_MAPS_KEY}`);
+      const geoData = await geoRes.json();
+      if (!geoData.results?.[0]) return null;
+      ({ lat, lng } = geoData.results[0].geometry.location);
+    }
     const res = await fetch(`https://maps.googleapis.com/maps/api/place/nearbysearch/json?location=${lat},${lng}&radius=2000&type=${type}&key=${process.env.NEXT_PUBLIC_GOOGLE_MAPS_KEY}`);
     const data = await res.json();
     return data.results?.slice(0, 4).map((p: any) => `${p.name} (${p.vicinity})${p.rating ? ` ${p.rating} stars` : ''}`).join(', ') || null;
@@ -64,7 +69,7 @@ export async function POST(req: NextRequest) {
       process.env.NEXT_PUBLIC_SUPABASE_URL!,
       process.env.SUPABASE_SERVICE_ROLE_KEY!
     );
-    const { messages, doctrine, jobContext, memories, repId, jobId, systemOverride, isMorningBrief } = await req.json();
+    const { messages, doctrine, jobContext, memories, repId, jobId, systemOverride, isMorningBrief, userLat, userLng } = await req.json();
 
     // Auth: if repId is provided, the session must belong to that rep
     if (repId) {
@@ -119,20 +124,23 @@ export async function POST(req: NextRequest) {
     const jobAddress = jobContext ? jobContext.match(/Address: (.+)/)?.[1] : null;
     const jobName = jobContext ? jobContext.match(/Customer: (.+)/)?.[1] : null;
     const hasAddress = jobAddress && jobAddress !== 'Not provided';
+    const hasGps = userLat && userLng;
+    const canLookup = hasAddress || hasGps;
 
     let contextAdditions = '';
 
-    if (hasAddress) {
+    if (canLookup) {
       const needsWeather = lastMsgLower.includes('weather') || lastMsgLower.includes('rain') || lastMsgLower.includes('storm') || lastMsgLower.includes('brief');
       const needsFood = lastMsgLower.includes('eat') || lastMsgLower.includes('lunch') || lastMsgLower.includes('food') || lastMsgLower.includes('hungry') || lastMsgLower.includes('restaurant') || lastMsgLower.includes('chick') || lastMsgLower.includes('burger') || lastMsgLower.includes('closest') || lastMsgLower.includes('near me') || lastMsgLower.includes('nearby') || lastMsgLower.includes('where') || lastMsgLower.includes('grab');
       const needsGas = lastMsgLower.includes('gas') || lastMsgLower.includes('fuel') || lastMsgLower.includes('station');
       const needsHardware = lastMsgLower.includes('hardware') || lastMsgLower.includes('supplies') || lastMsgLower.includes('home depot') || lastMsgLower.includes('lowes');
 
+      const addr = jobAddress || '';
       const [weather, food, gas, hardware] = await Promise.all([
-        needsWeather ? getWeather(jobAddress) : Promise.resolve(null),
-        needsFood ? getNearbyPlaces(jobAddress, 'restaurant') : Promise.resolve(null),
-        needsGas ? getNearbyPlaces(jobAddress, 'gas_station') : Promise.resolve(null),
-        needsHardware ? getNearbyPlaces(jobAddress, 'hardware_store') : Promise.resolve(null),
+        needsWeather && hasAddress ? getWeather(addr) : Promise.resolve(null),
+        needsFood ? getNearbyPlaces(addr, 'restaurant', userLat, userLng) : Promise.resolve(null),
+        needsGas ? getNearbyPlaces(addr, 'gas_station', userLat, userLng) : Promise.resolve(null),
+        needsHardware ? getNearbyPlaces(addr, 'hardware_store', userLat, userLng) : Promise.resolve(null),
       ]);
 
       if (weather) {

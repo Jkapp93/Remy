@@ -70,6 +70,7 @@ function VoicePageInner() {
   const doctrineRef = useRef('');
   const activeJobRef = useRef<Job | null>(null);
   const memoriesRef = useRef<{content: string}[]>([]);
+  const geoRef = useRef<{lat: number; lng: number} | null>(null);
 
   const accentColor = activeJob ? (JOB_TYPE_COLORS[activeJob.job_type] || '#f07a2e') : '#f07a2e';
 
@@ -113,6 +114,14 @@ function VoicePageInner() {
   const initPage = async () => {
     const clerkId = user!.id;
     const companyId = profile?.company_id;
+
+    if (navigator.geolocation) {
+      navigator.geolocation.getCurrentPosition(
+        (pos) => { geoRef.current = { lat: pos.coords.latitude, lng: pos.coords.longitude }; },
+        () => {},
+        { enableHighAccuracy: true, timeout: 5000 }
+      );
+    }
 
     const [jobData, doctrine, memData] = await Promise.all([
       fetch(`/api/jobs?clerkId=${clerkId}`).then(r => r.json()).then(d => d.jobs || []).catch(() => []),
@@ -219,7 +228,7 @@ function VoicePageInner() {
       const res = await fetch('/api/chat', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ messages: [...currentMessages, userMsg], doctrine: currentDoctrine, jobContext, memories: currentMemories, repId: user?.id, jobId: currentJob?.id }),
+        body: JSON.stringify({ messages: [...currentMessages, userMsg], doctrine: currentDoctrine, jobContext, memories: currentMemories, repId: user?.id, jobId: currentJob?.id, userLat: geoRef.current?.lat, userLng: geoRef.current?.lng }),
       });
 
       if (!res.ok || !res.body) throw new Error('Bad response');
