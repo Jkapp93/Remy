@@ -1,4 +1,4 @@
-﻿// app/api/agent/storm-chaser/route.ts
+// app/api/agent/storm-chaser/route.ts
 // After a major storm, finds affected addresses and creates job leads
 // Zeus calls this when storm-scan detects a major event
 
@@ -18,7 +18,7 @@ export async function POST(req: NextRequest) {
 
     // Generate storm canvassing brief via Claude
     const response = await anthropic.messages.create({
-      model: 'claude-sonnet-4-6',
+      model: 'claude-opus-4-8',
       max_tokens: 300,
       messages: [{
         role: 'user',

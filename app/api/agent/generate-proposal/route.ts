@@ -1,4 +1,4 @@
-﻿// app/api/agent/generate-proposal/route.ts
+// app/api/agent/generate-proposal/route.ts
 // Generates a professional PDF proposal after a job session
 // Zeus calls this after rep logs an outcome or quote
 
@@ -32,7 +32,7 @@ export async function POST(req: NextRequest) {
 
     // Generate proposal content via Claude
     const response = await anthropic.messages.create({
-      model: 'claude-sonnet-4-6',
+      model: 'claude-opus-4-8',
       max_tokens: 800,
       messages: [{
         role: 'user',

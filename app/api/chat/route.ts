@@ -1,8 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { createHash } from 'node:crypto';
 import Anthropic from '@anthropic-ai/sdk';
 import { createClient } from '@supabase/supabase-js';
 import { auth } from '@clerk/nextjs/server';
-import { extractIntents } from '@/lib/intents';
+import { extractIntents, EMPTY_INTENTS } from '@/lib/intents';
 import { buildSoul } from '@/lib/remySoul';
 
 const PLAN_LIMITS: Record<string, number> = { free: 20, solo: 150, command: 500, enterprise: 99999 };
@@ -70,15 +71,16 @@ export async function POST(req: NextRequest) {
 
     // systemOverride is only permitted for unauthenticated demo requests.
     // When a real repId + valid session is present, strip it to prevent prompt injection.
-    const safeSystemOverride = repId ? null : systemOverride;
+    const safeSystemOverride = repId ? null : (typeof systemOverride === 'string' ? systemOverride.slice(0, 2000) : null);
 
     const lastMsg = messages[messages.length - 1]?.content || '';
     const lastMsgLower = typeof lastMsg === 'string' ? lastMsg.toLowerCase() : '';
 
     // Kick off intent extraction now so it overlaps the profile and
     // weather/places lookups below. extractIntents never throws — it falls
-    // back to regex detection internally.
-    const intentsPromise = extractIntents(anthropic, lastMsg);
+    // back to regex detection internally. Demo traffic skips it (no side
+    // effects fire without a repId, so the extra Haiku call is pure cost).
+    const intentsPromise = repId ? extractIntents(anthropic, lastMsg) : Promise.resolve(EMPTY_INTENTS);
 
     // Inline rate limit — no HTTP self-call, no extra latency
     let companyId: string | null = null;
@@ -105,6 +107,22 @@ export async function POST(req: NextRequest) {
         void supabase.from('usage_daily').update({ count: count + 1 }).eq('id', usageRes.data.id);
       } else {
         void supabase.from('usage_daily').insert({ rep_id: repId, date: today, count: 1 });
+      }
+    } else {
+      // Unauthenticated demo traffic: hard daily cap per IP so /api/chat
+      // can't be farmed as a free Claude proxy.
+      const ip = req.headers.get('x-forwarded-for')?.split(',')[0]?.trim() || 'unknown';
+      const ipKey = `demo:${createHash('sha256').update(ip).digest('hex').slice(0, 32)}`;
+      const today = new Date().toISOString().split('T')[0];
+      const { data: demoUsage } = await supabase.from('usage_daily').select('id, count').eq('rep_id', ipKey).eq('date', today).single();
+      const demoCount = demoUsage?.count || 0;
+      if (demoCount >= 10) {
+        return NextResponse.json({ message: "That's the demo limit for today. Sign up to keep talking to Remy.", rateLimited: true });
+      }
+      if (demoUsage) {
+        void supabase.from('usage_daily').update({ count: demoCount + 1 }).eq('id', demoUsage.id);
+      } else {
+        void supabase.from('usage_daily').insert({ rep_id: ipKey, date: today, count: 1 });
       }
     }
 
@@ -175,8 +193,9 @@ ${jobContext ? `\nCURRENT JOB:\n${jobContext}\n` : ''}${memorySection}${contextA
 
     // Stream Claude response — client receives text as it generates
     const claudeStream = anthropic.messages.stream({
-      model: 'claude-sonnet-4-6',
-      max_tokens: isMorningBrief ? 500 : 300,
+      // Demo traffic gets Haiku + a tighter cap — plenty for a taste, useless as a proxy
+      model: repId ? 'claude-sonnet-4-6' : 'claude-haiku-4-5-20251001',
+      max_tokens: isMorningBrief ? 500 : repId ? 300 : 200,
       system: safeSystemOverride || [
         { type: 'text', text: staticSoul, cache_control: { type: 'ephemeral' } },
         { type: 'text', text: dynamicContext },

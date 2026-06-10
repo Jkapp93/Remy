@@ -1,4 +1,4 @@
-﻿// app/api/agent/adjuster-brief/route.ts
+// app/api/agent/adjuster-brief/route.ts
 // Generates insurance adjuster talking points for a specific job
 // Rep calls this when job is tagged as insurance claim
 
@@ -45,7 +45,7 @@ export async function POST(req: NextRequest) {
     const { jobId, jobType, damageDescription, carrierName } = await req.json();
 
     const response = await anthropic.messages.create({
-      model: 'claude-sonnet-4-6',
+      model: 'claude-opus-4-8',
       max_tokens: 500,
       messages: [{
         role: 'user',

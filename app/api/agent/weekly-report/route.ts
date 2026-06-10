@@ -1,4 +1,4 @@
-﻿// app/api/agent/weekly-report/route.ts
+// app/api/agent/weekly-report/route.ts
 // Generates and emails weekly performance report to company owner
 // Zeus calls this every Monday at 8am
 
@@ -53,7 +53,7 @@ export async function POST(req: NextRequest) {
 
     // Generate narrative via Claude
     const narrativeRes = await anthropic.messages.create({
-      model: 'claude-sonnet-4-6',
+      model: 'claude-opus-4-8',
       max_tokens: 200,
       messages: [{
         role: 'user',

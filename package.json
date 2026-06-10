@@ -12,6 +12,7 @@
   "dependencies": {
     "@anthropic-ai/sdk": "^0.104.1",
     "@clerk/nextjs": "^6.39.5",
+    "@sentry/nextjs": "^10.57.0",
     "@stripe/stripe-js": "^9.7.0",
     "@supabase/supabase-js": "^2.107.0",
     "cartesia-js": "^1.0.2",

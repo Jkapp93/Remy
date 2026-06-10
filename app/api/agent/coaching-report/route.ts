@@ -1,4 +1,4 @@
-﻿// app/api/agent/coaching-report/route.ts
+// app/api/agent/coaching-report/route.ts
 // Analyzes rep conversations and generates coaching insights
 // Zeus calls this nightly for each rep
 
@@ -40,7 +40,7 @@ export async function POST(req: NextRequest) {
     const noteSummaries = notes.map((n: any) => n.summary).filter(Boolean).join('\n');
 
     const response = await anthropic.messages.create({
-      model: 'claude-sonnet-4-6',
+      model: 'claude-opus-4-8',
       max_tokens: 400,
       messages: [{
         role: 'user',
