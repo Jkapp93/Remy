@@ -15,7 +15,9 @@ npm run start    # Start production server
 npm run lint     # Run ESLint
 ```
 
-No test suite is configured.
+```bash
+npm test         # Run Vitest unit tests (lib/__tests__/)
+```
 
 ## Architecture
 
@@ -28,7 +30,7 @@ No test suite is configured.
 - **TTS:** Cartesia (streaming MP3) at `/api/voice`
 - **Payments:** Stripe (webhooks at `/api/webhook`)
 - **Email:** Resend at `/api/weekly-email`
-- **External:** Google Maps (geocoding, nearby places), OpenWeather
+- **External:** Google Maps (geocoding, nearby places), OpenWeather — server routes use `GOOGLE_MAPS_KEY` (server-only, falls back to `NEXT_PUBLIC_GOOGLE_MAPS_KEY`); only client components may use the `NEXT_PUBLIC_` key
 
 **Key directories:**
 - `app/api/` — 23 Next.js route handlers (backend logic lives here)
@@ -40,9 +42,9 @@ No test suite is configured.
 
 ## Core Patterns
 
-**System prompt construction** — `lib/remySoul.ts` exports a builder that injects real-time context into Claude: current time/day, rep name and personality, active job details, nearby places, weather, company doctrine, and inferred user intent. Always update this file when adding new context sources.
+**System prompt construction** — `lib/remySoul.ts` exports `buildSoul()`, the static personality + doctrine block. The chat route passes it as the first system block with `cache_control: { type: 'ephemeral' }` (prompt caching) and appends per-message context (time, job, weather, intents) as a second uncached block. Keep dynamic content out of `buildSoul()` or it busts the cache.
 
-**Intent detection** — The chat API (`app/api/chat/route.ts`) uses regex patterns to detect when a rep's message implies a note, follow-up, job outcome, or financing request. Detected intents trigger agentic fire-and-forget side effects via `Promise.all([...]).catch(() => {})` so they never block the streaming response.
+**Intent detection** — `lib/intents.ts` exports `extractIntents()`, which runs a small Haiku tool-use call (`record_intents`) to detect notes, follow-ups, job outcomes, financing concerns, competitors, deal amounts, and broadcasts in the rep's last message. It falls back to the legacy regex detectors (also in that file, unit-tested) on any error and never throws. The chat route starts this call early so it overlaps the profile and weather lookups. Detected intents trigger agentic fire-and-forget side effects after the stream completes.
 
 **Agentic background tasks** — Side effects (DB writes, broadcasts, follow-up scheduling) are kicked off as parallel promises inside `/api/chat` after the response stream starts. They must be wrapped in `.catch(() => {})` to prevent unhandled rejections from crashing the response.
 
