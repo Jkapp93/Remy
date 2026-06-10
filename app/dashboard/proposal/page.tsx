@@ -14,6 +14,7 @@ function ProposalContent() {
   const [proposal, setProposal] = useState<any>(null);
   const [error, setError] = useState('');
   const [companyId, setCompanyId] = useState('');
+  const [copied, setCopied] = useState(false);
 
   useEffect(() => {
     if (!isLoaded || !user) return;
@@ -41,6 +42,35 @@ function ProposalContent() {
   };
 
   const printProposal = () => window.print();
+
+  const copyAsText = () => {
+    if (!proposal) return;
+    const lines = [
+      proposal.title,
+      proposal.date,
+      '',
+      `Prepared for: ${proposal.customer}`,
+      proposal.address || '',
+      '',
+      proposal.intro,
+      '',
+      'SCOPE OF WORK:',
+      ...(proposal.scope || []).map((s: string) => `  • ${s}`),
+      '',
+      proposal.quoteAmount ? `Total Investment: ${proposal.quoteAmount}` : '',
+      proposal.financing || '',
+      proposal.warranty ? `\nWarranty: ${proposal.warranty}` : '',
+      '',
+      proposal.closing,
+      '',
+      `Valid until: ${proposal.validUntil}`,
+      proposal.company || '',
+    ].filter(l => l !== undefined);
+    navigator.clipboard.writeText(lines.join('\n')).then(() => {
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2500);
+    });
+  };
 
   return (
     <div style={{ background: '#0b0f14', minHeight: '100vh', color: '#e8edf2', fontFamily: "'DM Sans', sans-serif" }}>
@@ -89,9 +119,12 @@ function ProposalContent() {
           </div>
         ) : (
           <div>
-            <div className="no-print" style={{ display: 'flex', gap: '12px', marginBottom: '24px' }}>
+            <div className="no-print" style={{ display: 'flex', gap: '12px', marginBottom: '24px', flexWrap: 'wrap' }}>
               <button onClick={printProposal} style={{ background: '#f07a2e', color: '#fff', border: 'none', borderRadius: '10px', padding: '12px 24px', fontFamily: "'DM Sans',sans-serif", fontSize: '0.88rem', fontWeight: 600, cursor: 'pointer' }}>
                 Print / Save PDF
+              </button>
+              <button onClick={copyAsText} style={{ background: copied ? 'rgba(61,175,118,0.15)' : 'rgba(74,159,212,0.1)', color: copied ? '#3daf76' : '#4a9fd4', border: `1px solid ${copied ? 'rgba(61,175,118,0.3)' : 'rgba(74,159,212,0.25)'}`, borderRadius: '10px', padding: '12px 24px', fontFamily: "'DM Sans',sans-serif", fontSize: '0.88rem', fontWeight: 500, cursor: 'pointer', transition: 'all 0.2s' }}>
+                {copied ? 'Copied!' : 'Copy as Text'}
               </button>
               <button onClick={() => setProposal(null)} style={{ background: 'rgba(255,255,255,0.06)', color: '#e8edf2', border: '1px solid rgba(255,255,255,0.08)', borderRadius: '10px', padding: '12px 24px', fontFamily: "'DM Sans',sans-serif", fontSize: '0.88rem', cursor: 'pointer' }}>
                 Regenerate
@@ -117,7 +150,7 @@ function ProposalContent() {
                   <div style={{ fontWeight: 600, marginBottom: '12px', fontSize: '0.82rem', letterSpacing: '0.1em', textTransform: 'uppercase', color: '#f07a2e' }}>Scope of Work</div>
                   {proposal.scope.map((item: string, i: number) => (
                     <div key={i} style={{ display: 'flex', gap: '10px', marginBottom: '8px', color: '#c8d8e8', fontWeight: 300 }}>
-                      <span style={{ color: '#f07a2e', flexShrink: 0 }}>â€¢</span>{item}
+                      <span style={{ color: '#f07a2e', flexShrink: 0 }}>{'•'}</span>{item}
                     </div>
                   ))}
                 </div>

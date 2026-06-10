@@ -23,6 +23,9 @@ export default function SettingsPage() {
   const [agentName, setAgentName] = useState('Remy');
   const [savingAgent, setSavingAgent] = useState(false);
   const [agentSaved, setAgentSaved] = useState(false);
+  const [crmWebhook, setCrmWebhook] = useState('');
+  const [savingWebhook, setSavingWebhook] = useState(false);
+  const [webhookSaved, setWebhookSaved] = useState(false);
 
   useEffect(() => {
     const saved = localStorage.getItem('remy_voice');
@@ -38,6 +41,7 @@ export default function SettingsPage() {
       setShareConversations(data.profile.share_conversations ?? true);
       setPlan(data.profile.companies?.plan || null);
       setAgentName(data.profile.companies?.agent_name || 'Remy');
+      setCrmWebhook(data.profile.companies?.crm_webhook_url || '');
     }
   };
 
@@ -52,6 +56,19 @@ export default function SettingsPage() {
     setSavingAgent(false);
     setAgentSaved(true);
     setTimeout(() => setAgentSaved(false), 2000);
+  };
+
+  const saveWebhook = async () => {
+    if (!user) return;
+    setSavingWebhook(true);
+    await fetch('/api/profile', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ clerkId: user.id, crmWebhookUrl: crmWebhook.trim() }),
+    });
+    setSavingWebhook(false);
+    setWebhookSaved(true);
+    setTimeout(() => setWebhookSaved(false), 2500);
   };
 
   const openBillingPortal = async () => {
@@ -188,6 +205,32 @@ export default function SettingsPage() {
             </button>
           </div>
         </div>
+
+        {/* CRM Webhook */}
+        {plan && plan !== 'free' && (
+          <div style={{ marginBottom:'32px' }}>
+            <div style={{ fontSize:'0.68rem', fontWeight:600, letterSpacing:'0.12em', textTransform:'uppercase', color:'#3d5268', marginBottom:'14px' }}>CRM Webhook</div>
+            <div style={{ background:'#111820', border:'1px solid rgba(255,255,255,0.07)', borderRadius:'12px', padding:'18px 20px' }}>
+              <div style={{ fontSize:'0.82rem', color:'#7a8fa4', fontWeight:300, marginBottom:'12px' }}>When Remy logs a note or outcome, it POSTs a JSON payload to this URL. Pipe it into your CRM, Zapier, or Make.</div>
+              <div style={{ display:'flex', gap:'10px', alignItems:'center' }}>
+                <input
+                  value={crmWebhook}
+                  onChange={e => setCrmWebhook(e.target.value)}
+                  placeholder="https://hooks.zapier.com/..."
+                  style={{ flex:1, background:'#0b0f14', border:'1px solid rgba(255,255,255,0.08)', borderRadius:'8px', padding:'11px 14px', color:'#e8edf2', fontFamily:"'DM Sans',sans-serif", fontSize:'0.88rem', outline:'none' }}
+                />
+                <button
+                  onClick={saveWebhook}
+                  disabled={savingWebhook}
+                  style={{ padding:'11px 20px', background: webhookSaved ? 'rgba(61,175,118,0.15)' : '#f07a2e', border: webhookSaved ? '1px solid rgba(61,175,118,0.4)' : 'none', borderRadius:'8px', color: webhookSaved ? '#3daf76' : '#fff', fontFamily:"'DM Sans',sans-serif", fontSize:'0.82rem', fontWeight:600, cursor:'pointer', flexShrink:0, transition:'all 0.2s' }}
+                >
+                  {webhookSaved ? 'Saved ✓' : savingWebhook ? 'Saving...' : 'Save'}
+                </button>
+              </div>
+              <div style={{ fontSize:'0.72rem', color:'#2d3f52', marginTop:'10px' }}>Payload includes: job_id, rep_id, note summary, quote amount, follow-up date, outcome.</div>
+            </div>
+          </div>
+        )}
 
         {/* Billing */}
         <div style={{ marginBottom:'32px' }}>

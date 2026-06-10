@@ -165,6 +165,30 @@ export default function ObjectionsPage() {
       </div>
 
       <div style={{ maxWidth: '600px', margin: '0 auto', padding: '24px 16px' }}>
+        {/* Panic Buttons — most common objections, 1-tap at the door */}
+        <div style={{ marginBottom: '20px' }}>
+          <div style={{ fontSize: '0.65rem', fontWeight: 600, letterSpacing: '0.12em', textTransform: 'uppercase', color: '#c84a4a', marginBottom: '10px' }}>At the door right now</div>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '8px' }}>
+            {[
+              { label: 'Too Expensive', obj: 'Your price is too high' },
+              { label: 'Need to Think', obj: 'I need to think about it' },
+              { label: 'Competitor Bid', obj: 'I already have a lower bid from a competitor' },
+              { label: 'Ask Spouse', obj: 'I need to talk to my spouse first' },
+              { label: 'Bad Timing', obj: "The timing isn't right, maybe next year" },
+              { label: 'Get More Quotes', obj: "I'm going to get a few more quotes first" },
+            ].map(({ label, obj }) => (
+              <button
+                key={label}
+                onClick={() => handleObjection(obj)}
+                disabled={loading}
+                style={{ padding: '12px 8px', background: activeObjection === obj ? 'rgba(200,74,74,0.15)' : 'rgba(200,74,74,0.06)', border: `1px solid ${activeObjection === obj ? 'rgba(200,74,74,0.5)' : 'rgba(200,74,74,0.2)'}`, borderRadius: '10px', color: activeObjection === obj ? '#e87878' : '#c84a4a', fontFamily: "'DM Sans',sans-serif", fontSize: '0.78rem', fontWeight: 600, cursor: loading ? 'wait' : 'pointer', lineHeight: 1.3, transition: 'all 0.15s' }}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+        </div>
+
         {/* Trade filter */}
         <div style={{ display: 'flex', gap: '8px', overflowX: 'auto', paddingBottom: '4px', marginBottom: '20px' }}>
           {TRADES.map(t => (

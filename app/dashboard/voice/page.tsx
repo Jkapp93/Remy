@@ -15,7 +15,7 @@ const DOCTRINE_TTL = 15 * 60 * 1000; // 15 minutes
 const SESSION_TTL = 12 * 60 * 60 * 1000; // 12 hours — don't restore yesterday's session
 
 type Message = { role: 'user' | 'assistant'; content: string };
-type Job = { id: string; customer_name: string; address: string; notes: string; status: string; job_type: string };
+type Job = { id: string; customer_name: string; address: string; notes: string; status: string; job_type: string; deal_value?: number };
 
 async function getCachedDoctrine(clerkId: string): Promise<string> {
   try {
@@ -48,6 +48,9 @@ function VoicePageInner() {
   const [memories, setMemories] = useState<{content: string}[]>([]);
   const [showJobPicker, setShowJobPicker] = useState(false);
   const [handsFree, setHandsFree] = useState(false);
+  const [closeStreak, setCloseStreak] = useState(0);
+  const [followUpCount, setFollowUpCount] = useState(0);
+  const [showOutcomeBtns, setShowOutcomeBtns] = useState(false);
 
   // Refs for audio
   const audioRef = useRef<HTMLAudioElement | null>(null);
@@ -71,6 +74,7 @@ function VoicePageInner() {
   const activeJobRef = useRef<Job | null>(null);
   const memoriesRef = useRef<{content: string}[]>([]);
   const geoRef = useRef<{lat: number; lng: number} | null>(null);
+  const photoInputRef = useRef<HTMLInputElement | null>(null);
 
   const accentColor = activeJob ? (JOB_TYPE_COLORS[activeJob.job_type] || '#f07a2e') : '#f07a2e';
 
@@ -123,15 +127,26 @@ function VoicePageInner() {
       );
     }
 
-    const [jobData, doctrine, memData] = await Promise.all([
+    const [jobData, doctrine, memData, notesData] = await Promise.all([
       fetch(`/api/jobs?clerkId=${clerkId}`).then(r => r.json()).then(d => d.jobs || []).catch(() => []),
       getCachedDoctrine(clerkId),
       fetch(`/api/memory?repId=${clerkId}`).then(r => r.json()).catch(() => ({ memories: [] })),
+      fetch(`/api/notes?repId=${clerkId}`).then(r => r.json()).catch(() => ({ notes: [] })),
     ]);
 
     setJobs(jobData);
     setDoctrine(doctrine);
     setMemories(memData.memories || []);
+    const pendingFollowUps = (notesData.notes || []).filter((n: any) => n.follow_up_date);
+    setFollowUpCount(pendingFollowUps.length);
+
+    // Compute close streak from rep_memory
+    const closedMems = (memData.memories || []).filter((m: any) => m.source === 'outcome' && m.content?.includes('CLOSED'));
+    const closeDays = new Set(closedMems.map((m: any) => new Date(m.created_at).toDateString()));
+    let streak = 0;
+    const sd = new Date();
+    while (closeDays.has(sd.toDateString())) { streak++; sd.setDate(sd.getDate() - 1); }
+    setCloseStreak(streak);
 
     // Restore session from localStorage if it's fresh (same day)
     try {
@@ -148,6 +163,29 @@ function VoicePageInner() {
       }
     } catch {}
 
+    // Return prompt: if rep was briefed on a job recently but no outcome logged today, ask how it went
+    try {
+      const lastBriefRaw = localStorage.getItem(`remy_last_brief_${clerkId}`);
+      if (lastBriefRaw) {
+        const { jobId: lastJobId, jobName: lastJobName, ts: briefTs } = JSON.parse(lastBriefRaw);
+        const elapsed = Date.now() - briefTs;
+        if (elapsed > 5 * 60 * 1000 && elapsed < 8 * 60 * 60 * 1000) {
+          const todayStr = new Date().toDateString();
+          const hasOutcomeToday = (memData.memories || []).some((m: any) => m.source === 'outcome' && new Date(m.created_at).toDateString() === todayStr);
+          if (!hasOutcomeToday) {
+            const foundJob = jobData.find((j: Job) => j.id === lastJobId);
+            if (foundJob) {
+              setActiveJob(foundJob);
+              activeJobRef.current = foundJob;
+              setShowOutcomeBtns(true);
+              setMessages([{ role: 'assistant', content: `You're back. How'd it go with ${lastJobName}? Tap an outcome below or tell me what happened.` }]);
+              return;
+            }
+          }
+        }
+      }
+    } catch {}
+
     const jobId = searchParams.get('jobId');
     if (jobId && jobData.length > 0) {
       const found = jobData.find((j: Job) => j.id === jobId);
@@ -158,10 +196,13 @@ function VoicePageInner() {
       }
     }
 
+    const streakNote = streak >= 3 ? ` ${streak}-day streak — let's keep it going.` : '';
     if (jobData.length > 0) {
-      setMessages([{ role: 'assistant', content: `Hey. ${jobData.length} active job${jobData.length > 1 ? 's' : ''} today. Select a job and tap Brief Me, or tap Brief My Day to get started.` }]);
+      const fuNote = pendingFollowUps.length > 0 ? ` ${pendingFollowUps.length} follow-up${pendingFollowUps.length > 1 ? 's' : ''} pending too.` : '';
+      setMessages([{ role: 'assistant', content: `Hey.${streakNote} ${jobData.length} active job${jobData.length > 1 ? 's' : ''} today.${fuNote} Select a job or tap Brief My Day.` }]);
     } else {
-      setMessages([{ role: 'assistant', content: `Hey. No active jobs yet. Create one in Jobs and I will brief you before you knock.` }]);
+      const fuNote = pendingFollowUps.length > 0 ? ` But ${pendingFollowUps.length} follow-up${pendingFollowUps.length > 1 ? 's' : ''} pending — check Field Notes.` : ' Create one in Jobs and I will brief you before you knock.';
+      setMessages([{ role: 'assistant', content: `Hey.${streakNote} No active jobs yet.${fuNote}` }]);
     }
   };
 
@@ -214,7 +255,7 @@ function VoicePageInner() {
 
   const doSend = async (text: string, currentMessages: Message[], currentDoctrine: string, currentJob: Job | null, currentMemories: {content: string}[]) => {
     const jobContext = currentJob
-      ? `Customer: ${currentJob.customer_name}\nAddress: ${currentJob.address || 'Not provided'}\nNotes: ${currentJob.notes || 'None'}\nJob type: ${currentJob.job_type || 'General'}`
+      ? `Customer: ${currentJob.customer_name}\nAddress: ${currentJob.address || 'Not provided'}\nNotes: ${currentJob.notes || 'None'}\nJob type: ${currentJob.job_type || 'General'}${currentJob.deal_value ? `\nDeal value: $${currentJob.deal_value.toLocaleString()}` : ''}`
       : '';
 
     const userMsg: Message = { role: 'user', content: text };
@@ -284,6 +325,113 @@ function VoicePageInner() {
       });
     }
     setLoading(false);
+    // Show quick outcome buttons after any response when a job is active
+    if (activeJobRef.current) setShowOutcomeBtns(true);
+  };
+
+  // ─── Photo damage analysis via Claude Vision ───
+
+  const doSendPhoto = async (base64: string, mediaType: string) => {
+    const currentDoctrine = doctrineRef.current;
+    const currentJob = activeJobRef.current;
+    const currentMemories = memoriesRef.current;
+    const currentMessages = sessionMessagesRef.current;
+
+    const jobContext = currentJob
+      ? `Customer: ${currentJob.customer_name}\nAddress: ${currentJob.address || 'Not provided'}\nNotes: ${currentJob.notes || 'None'}\nJob type: ${currentJob.job_type || 'General'}${currentJob.deal_value ? `\nDeal value: $${currentJob.deal_value.toLocaleString()}` : ''}`
+      : '';
+
+    try {
+      const res = await fetch('/api/chat', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          messages: [
+            ...currentMessages,
+            {
+              role: 'user',
+              content: [
+                { type: 'image', source: { type: 'base64', media_type: mediaType, data: base64 } },
+                { type: 'text', text: `I just took this photo at the job site${currentJob ? ` for ${currentJob.customer_name}` : ''}. Analyze what you see. Tell me: what damage or issues are visible, how serious is it, and give me 2 to 3 talking points I can use right now at the door.` }
+              ]
+            }
+          ],
+          doctrine: currentDoctrine,
+          jobContext,
+          memories: currentMemories,
+          repId: user?.id,
+          jobId: currentJob?.id,
+          userLat: geoRef.current?.lat,
+          userLng: geoRef.current?.lng,
+        }),
+      });
+
+      if (!res.ok || !res.body) throw new Error('Bad response');
+
+      const reader = res.body.getReader();
+      const decoder = new TextDecoder();
+      let fullText = '';
+      let sentenceBuffer = '';
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        const chunk = decoder.decode(value, { stream: true });
+        fullText += chunk;
+        sentenceBuffer += chunk;
+
+        setMessages(prev => {
+          const updated = [...prev];
+          updated[updated.length - 1] = { role: 'assistant', content: fullText };
+          return updated;
+        });
+
+        const parts = sentenceBuffer.split(/(?<=[.!?])\s+/);
+        if (parts.length > 1) {
+          for (let i = 0; i < parts.length - 1; i++) {
+            if (parts[i].trim().length > 5) enqueueTTS(parts[i].trim());
+          }
+          sentenceBuffer = parts[parts.length - 1];
+        }
+      }
+
+      if (sentenceBuffer.trim().length > 5) enqueueTTS(sentenceBuffer.trim());
+
+      const userDisplayMsg: Message = { role: 'user', content: '📷 Photo sent for analysis' };
+      const finalMessages: Message[] = [...currentMessages, userDisplayMsg, { role: 'assistant', content: fullText }];
+      setMessages(finalMessages);
+      sessionMessagesRef.current = finalMessages;
+    } catch {
+      setMessages(prev => {
+        const updated = [...prev];
+        updated[updated.length - 1] = { role: 'assistant', content: 'Could not analyze the photo. Try again.' };
+        return updated;
+      });
+    }
+    setLoading(false);
+  };
+
+  const handlePhotoCapture = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    if (file.size > 5 * 1024 * 1024) {
+      alert('Photo is too large. Please use a photo under 5MB.');
+      if (photoInputRef.current) photoInputRef.current.value = '';
+      return;
+    }
+    const reader = new FileReader();
+    reader.onload = () => {
+      const dataUrl = reader.result as string;
+      const base64 = dataUrl.split(',')[1];
+      const mediaType = file.type || 'image/jpeg';
+      const placeholder: Message = { role: 'user', content: '📷 Analyzing photo...' };
+      const withPlaceholder: Message[] = [...sessionMessagesRef.current, placeholder, { role: 'assistant', content: '' }];
+      setMessages(withPlaceholder);
+      setLoading(true);
+      doSendPhoto(base64, mediaType);
+    };
+    reader.readAsDataURL(file);
+    if (photoInputRef.current) photoInputRef.current.value = '';
   };
 
   // ─── Hands-free VAD via Web Speech API ───
@@ -387,8 +535,53 @@ function VoicePageInner() {
     return () => { window.removeEventListener('beforeunload', saveSession); saveSession(); };
   }, []);
 
+  // AirPods / headphone media controls via MediaSession API
+  useEffect(() => {
+    if (!('mediaSession' in navigator)) return;
+    navigator.mediaSession.metadata = new MediaMetadata({ title: 'Remy', artist: 'Field Co-pilot' });
+    navigator.mediaSession.setActionHandler('play', () => {
+      if (!loadingRef.current && !ttsPlayingRef.current) startVADListening();
+    });
+    navigator.mediaSession.setActionHandler('pause', () => {
+      stopSpeaking();
+      recognitionRef.current?.stop();
+      recognitionRef.current = null;
+      setListening(false);
+    });
+    navigator.mediaSession.setActionHandler('nexttrack', () => {
+      const next = !handsFreeRef.current;
+      handsFreeRef.current = next;
+      setHandsFree(next);
+      if (next && !loadingRef.current && !ttsPlayingRef.current) setTimeout(() => startVADListening(), 200);
+      else { recognitionRef.current?.stop(); recognitionRef.current = null; setListening(false); }
+    });
+    return () => {
+      try {
+        navigator.mediaSession.setActionHandler('play', null);
+        navigator.mediaSession.setActionHandler('pause', null);
+        navigator.mediaSession.setActionHandler('nexttrack', null);
+      } catch {}
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!('mediaSession' in navigator)) return;
+    navigator.mediaSession.playbackState = (speaking || listening) ? 'playing' : 'paused';
+  }, [speaking, listening]);
+
+  const logOutcome = (outcome: 'won' | 'lost' | 'followup') => {
+    setShowOutcomeBtns(false);
+    const msgs: Record<string, string> = {
+      won: `We closed it. They signed.`,
+      lost: `No sale. They passed.`,
+      followup: `They want to think about it. Follow up next week.`,
+    };
+    doSend(msgs[outcome], sessionMessagesRef.current, doctrineRef.current, activeJobRef.current, memoriesRef.current);
+  };
+
   const briefJob = () => {
     if (!activeJob) return;
+    setShowOutcomeBtns(false);
     doSend(
       `Brief me fast. Pulling up to ${activeJob.customer_name}${activeJob.address ? ` at ${activeJob.address}` : ''}${activeJob.notes ? `. Notes: ${activeJob.notes}` : ''}.`,
       sessionMessagesRef.current, doctrineRef.current, activeJob, memoriesRef.current
@@ -396,8 +589,11 @@ function VoicePageInner() {
   };
 
   const briefDay = () => {
-    const jobList = jobs.slice(0, 5).map(j => `${j.customer_name}${j.address ? ` at ${j.address}` : ''}`).join(', ');
-    doSend(`Give me a quick morning brief. I have ${jobs.length} active jobs today: ${jobList}. What should I know to start the day strong?`, sessionMessagesRef.current, doctrineRef.current, null, memoriesRef.current);
+    const jobList = jobs.slice(0, 5).map(j => `${j.customer_name}${j.address ? ` at ${j.address}` : ''}${j.deal_value ? ` ($${j.deal_value.toLocaleString()})` : ''}`).join(', ');
+    const pipelineVal = jobs.reduce((sum, j) => sum + (j.deal_value || 0), 0);
+    const fuNote = followUpCount > 0 ? ` ${followUpCount} follow-up${followUpCount > 1 ? 's' : ''} pending.` : '';
+    const pipeNote = pipelineVal > 0 ? ` Total pipeline today: $${pipelineVal.toLocaleString()}.` : '';
+    doSend(`Give me a quick morning brief.${fuNote}${pipeNote} I have ${jobs.length} active job${jobs.length !== 1 ? 's' : ''} today: ${jobList}. What should I know to start strong?`, sessionMessagesRef.current, doctrineRef.current, null, memoriesRef.current);
   };
 
   return (
@@ -418,9 +614,16 @@ function VoicePageInner() {
 
       {/* Header */}
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '14px 20px', borderBottom: `1px solid ${accentColor}22`, background: 'rgba(11,15,20,0.98)', position: 'relative', flexShrink: 0 }}>
-        <Link href="/dashboard" style={{ fontFamily: "'Syne',sans-serif", fontSize: '1.1rem', fontWeight: 800, textDecoration: 'none', color: '#e8edf2' }}>
-          {(profile?.companies as any)?.agent_name || 'Remy'}<span style={{ color: accentColor }}>.</span>
-        </Link>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+          <Link href="/dashboard" style={{ fontFamily: "'Syne',sans-serif", fontSize: '1.1rem', fontWeight: 800, textDecoration: 'none', color: '#e8edf2' }}>
+            {(profile?.companies as any)?.agent_name || 'Remy'}<span style={{ color: accentColor }}>.</span>
+          </Link>
+          {closeStreak >= 3 && (
+            <span title={`${closeStreak}-day close streak`} style={{ fontSize: '0.62rem', fontWeight: 700, color: '#f1c40f', background: 'rgba(241,196,15,0.1)', border: '1px solid rgba(241,196,15,0.25)', borderRadius: '20px', padding: '2px 8px', letterSpacing: '0.04em' }}>
+              &#128293; {closeStreak}d
+            </span>
+          )}
+        </div>
 
         <div style={{ display: 'flex', alignItems: 'center', gap: '8px', position: 'relative' }}>
           <button
@@ -464,7 +667,7 @@ function VoicePageInner() {
               {jobs.map(job => {
                 const color = JOB_TYPE_COLORS[job.job_type] || '#f07a2e';
                 return (
-                  <div key={job.id} className="job-option" onClick={() => { setActiveJob(job); setShowJobPicker(false); setMessages(prev => [...prev, { role: 'assistant', content: `${job.customer_name} loaded. Tap Brief Me when ready.` }]); }}>
+                  <div key={job.id} className="job-option" onClick={() => { setActiveJob(job); activeJobRef.current = job; setShowJobPicker(false); try { localStorage.setItem(`remy_last_brief_${user!.id}`, JSON.stringify({ jobId: job.id, jobName: job.customer_name, ts: Date.now() })); } catch {} setTimeout(() => doSend(`Brief me fast. Pulling up to ${job.customer_name}${job.address ? ` at ${job.address}` : ''}${job.notes ? `. Notes: ${job.notes}` : ''}.`, sessionMessagesRef.current, doctrineRef.current, job, memoriesRef.current), 50); }}>
                     <div style={{ width: '8px', height: '8px', borderRadius: '50%', background: color, flexShrink: 0 }} />
                     <div style={{ flex: 1 }}>
                       <div style={{ fontSize: '0.88rem', fontWeight: 500, color: '#e8edf2' }}>{job.customer_name}</div>
@@ -485,7 +688,7 @@ function VoicePageInner() {
         {messages.map((m, i) => (
           <div key={i} style={{ display: 'flex', justifyContent: m.role === 'user' ? 'flex-end' : 'flex-start', alignItems: 'flex-end', gap: '8px' }}>
             {m.role === 'assistant' && (
-              <div style={{ width: '28px', height: '28px', borderRadius: '50%', background: `${accentColor}15`, border: `1px solid ${accentColor}33`, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '0.7rem', fontWeight: 700, color: accentColor, flexShrink: 0 }}>R</div>
+              <div style={{ width: '28px', height: '28px', borderRadius: '50%', background: `${accentColor}15`, border: `1px solid ${accentColor}33`, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '0.7rem', fontWeight: 700, color: accentColor, flexShrink: 0 }}>{((profile?.companies as any)?.agent_name || 'Remy')[0].toUpperCase()}</div>
             )}
             <div style={{ maxWidth: '78%', padding: '12px 16px', borderRadius: m.role === 'user' ? '18px 18px 4px 18px' : '18px 18px 18px 4px', background: m.role === 'user' ? '#1a2535' : `${accentColor}08`, border: `1px solid ${m.role === 'user' ? 'rgba(255,255,255,0.05)' : accentColor + '18'}`, fontSize: '0.92rem', lineHeight: 1.6, color: m.role === 'user' ? '#8a9db5' : '#e8edf2', fontWeight: 300 }}>
               {m.content || <span style={{ opacity: 0.3 }}>...</span>}
@@ -504,8 +707,28 @@ function VoicePageInner() {
         )}
       </div>
 
+      {/* Quick outcome buttons */}
+      {showOutcomeBtns && activeJob && !loading && !speaking && (
+        <div style={{ padding: '8px 16px', borderTop: `1px solid ${accentColor}10`, background: 'rgba(11,15,20,0.98)', display: 'flex', gap: '8px', alignItems: 'center', flexShrink: 0 }}>
+          <span style={{ fontSize: '0.62rem', color: '#3d5268', fontWeight: 600, letterSpacing: '0.08em', textTransform: 'uppercase', flexShrink: 0 }}>How&apos;d it go?</span>
+          <button onClick={() => logOutcome('won')} style={{ flex: 1, padding: '8px', borderRadius: '8px', border: '1px solid rgba(61,175,118,0.35)', background: 'rgba(61,175,118,0.08)', color: '#3daf76', fontFamily: "'DM Sans',sans-serif", fontSize: '0.75rem', fontWeight: 600, cursor: 'pointer' }}>Won it</button>
+          <button onClick={() => logOutcome('lost')} style={{ flex: 1, padding: '8px', borderRadius: '8px', border: '1px solid rgba(200,74,74,0.35)', background: 'rgba(200,74,74,0.08)', color: '#c84a4a', fontFamily: "'DM Sans',sans-serif", fontSize: '0.75rem', fontWeight: 600, cursor: 'pointer' }}>Lost it</button>
+          <button onClick={() => logOutcome('followup')} style={{ flex: 1, padding: '8px', borderRadius: '8px', border: '1px solid rgba(74,159,212,0.35)', background: 'rgba(74,159,212,0.08)', color: '#4a9fd4', fontFamily: "'DM Sans',sans-serif", fontSize: '0.75rem', fontWeight: 600, cursor: 'pointer' }}>Follow up</button>
+          <button onClick={() => setShowOutcomeBtns(false)} style={{ padding: '8px', borderRadius: '8px', border: 'none', background: 'transparent', color: '#2d3f52', cursor: 'pointer', fontSize: '0.8rem', flexShrink: 0 }}>✕</button>
+        </div>
+      )}
+
       {/* Input */}
+      <input type="file" ref={photoInputRef} accept="image/*" capture="environment" onChange={handlePhotoCapture} style={{ display: 'none' }} />
       <div style={{ padding: '12px 16px', borderTop: `1px solid ${accentColor}15`, background: 'rgba(11,15,20,0.98)', display: 'flex', gap: '10px', alignItems: 'center', flexShrink: 0 }}>
+        <button
+          onClick={() => photoInputRef.current?.click()}
+          title="Take a photo for damage analysis"
+          disabled={loading || speaking}
+          style={{ width: '44px', height: '44px', borderRadius: '50%', border: `1px solid rgba(255,255,255,0.08)`, background: 'rgba(255,255,255,0.03)', color: loading || speaking ? '#1e2a38' : '#3d5268', cursor: loading || speaking ? 'default' : 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, fontSize: '1.1rem', transition: 'all 0.2s' }}
+        >
+          &#128247;
+        </button>
         {!handsFree && (
           <button
             className="mic-btn"

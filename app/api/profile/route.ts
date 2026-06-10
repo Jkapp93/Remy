@@ -1,5 +1,6 @@
-﻿import { NextRequest, NextResponse } from 'next/server';
+import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
+import { auth } from '@clerk/nextjs/server';
 
 export async function GET(req: NextRequest) {
   const supabase = createClient(
@@ -34,6 +35,7 @@ export async function POST(req: NextRequest) {
 }
 
 export async function PATCH(req: NextRequest) {
+  const { userId } = await auth();
   const supabase = createClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
     process.env.SUPABASE_SERVICE_ROLE_KEY!
@@ -41,6 +43,7 @@ export async function PATCH(req: NextRequest) {
   const body = await req.json();
   const { clerkId, ...fields } = body;
   if (!clerkId) return NextResponse.json({ error: 'No clerkId' }, { status: 400 });
+  if (!userId || userId !== clerkId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   const { data } = await supabase
     .from('profiles')
     .update(fields)
@@ -51,14 +54,23 @@ export async function PATCH(req: NextRequest) {
 }
 
 export async function PUT(req: NextRequest) {
+  const { userId } = await auth();
   const supabase = createClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
     process.env.SUPABASE_SERVICE_ROLE_KEY!
   );
-  const { clerkId, agentName } = await req.json();
-  if (!clerkId || !agentName) return NextResponse.json({ error: 'Missing fields' }, { status: 400 });
+  const { clerkId, agentName, crmWebhookUrl } = await req.json();
+  if (!clerkId) return NextResponse.json({ error: 'Missing clerkId' }, { status: 400 });
+  if (!userId || userId !== clerkId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   const { data: profile } = await supabase.from('profiles').select('company_id').eq('clerk_id', clerkId).single();
   if (!profile?.company_id) return NextResponse.json({ error: 'No company' }, { status: 404 });
-  await supabase.from('companies').update({ agent_name: agentName }).eq('id', profile.company_id);
+
+  const updates: Record<string, string> = {};
+  if (agentName) updates.agent_name = agentName;
+  if (crmWebhookUrl !== undefined) updates.crm_webhook_url = crmWebhookUrl;
+
+  if (Object.keys(updates).length > 0) {
+    await supabase.from('companies').update(updates).eq('id', profile.company_id);
+  }
   return NextResponse.json({ success: true });
 }

@@ -13,6 +13,7 @@ function DashboardInner() {
   const [followUps, setFollowUps] = useState<FollowUp[]>([]);
   const [jobs, setJobs] = useState<{id: string; customer_name: string}[]>([]);
   const [showWelcome, setShowWelcome] = useState(false);
+  const [winsThisWeek, setWinsThisWeek] = useState(0);
 
   useEffect(() => {
     if (!isLoaded || !user) return;
@@ -24,10 +25,14 @@ function DashboardInner() {
     Promise.all([
       fetch(`/api/notes?repId=${user.id}`).then(r => r.json()),
       fetch(`/api/jobs?clerkId=${user.id}`).then(r => r.json()),
-    ]).then(([notesData, jobsData]) => {
+      fetch(`/api/memory?repId=${user.id}`).then(r => r.json()).catch(() => ({ memories: [] })),
+    ]).then(([notesData, jobsData, memData]) => {
       const pending = (notesData.notes || []).filter((n: any) => n.follow_up_date);
       setFollowUps(pending.slice(0, 5));
       setJobs(jobsData.jobs || []);
+      const weekAgo = Date.now() - 7 * 24 * 60 * 60 * 1000;
+      const wins = (memData.memories || []).filter((m: any) => m.source === 'outcome' && m.content?.includes('CLOSED') && new Date(m.created_at || 0).getTime() > weekAgo);
+      setWinsThisWeek(wins.length);
     }).catch(() => {});
   }, [isLoaded, user]);
 
@@ -67,6 +72,16 @@ function DashboardInner() {
           Your AI field companion is ready.
         </div>
 
+        {winsThisWeek > 0 && (
+          <div style={{ marginBottom: '20px', background: 'rgba(61,175,118,0.06)', border: '1px solid rgba(61,175,118,0.2)', borderRadius: '12px', padding: '14px 20px', display: 'flex', alignItems: 'center', gap: '14px' }}>
+            <div style={{ fontSize: '1.6rem', lineHeight: 1 }}>&#127942;</div>
+            <div>
+              <div style={{ fontWeight: 600, fontSize: '0.9rem', color: '#3daf76' }}>{winsThisWeek} close{winsThisWeek > 1 ? 's' : ''} this week</div>
+              <div style={{ fontSize: '0.78rem', color: '#7a8fa4', fontWeight: 300 }}>Keep the momentum going.</div>
+            </div>
+          </div>
+        )}
+
         {followUps.length > 0 && (
           <div style={{ marginBottom: '32px', background: 'rgba(74,159,212,0.04)', border: '1px solid rgba(74,159,212,0.15)', borderRadius: '12px', padding: '18px 20px' }}>
             <div style={{ fontSize: '0.68rem', fontWeight: 600, letterSpacing: '0.12em', textTransform: 'uppercase', color: '#4a9fd4', marginBottom: '12px' }}>
@@ -94,14 +109,13 @@ function DashboardInner() {
           <Link href="/dashboard/jobs" className="card">
             <div className="card-icon" style={{ background:'rgba(255,255,255,0.05)', color:'#7a8fa4' }}>JOBS</div>
             <div style={{ fontFamily:"'Syne', sans-serif", fontWeight:700, fontSize:'1rem', marginBottom:'6px' }}>Jobs</div>
-            <div style={{ color:'#7a8fa4', fontSize:'0.82rem', fontWeight:300 }}>Create and manage your field jobs</div>
-
+            <div style={{ color:'#7a8fa4', fontSize:'0.82rem', fontWeight:300 }}>{jobs.length > 0 ? `${jobs.length} active job${jobs.length > 1 ? 's' : ''}` : 'Create and manage your field jobs'}</div>
           </Link>
 
           <Link href="/dashboard/notes" className="card">
             <div className="card-icon" style={{ background:'rgba(255,255,255,0.05)', color:'#7a8fa4' }}>NOTE</div>
             <div style={{ fontFamily:"'Syne', sans-serif", fontWeight:700, fontSize:'1rem', marginBottom:'6px' }}>Field Notes</div>
-            <div style={{ color:'#7a8fa4', fontSize:'0.82rem', fontWeight:300 }}>View logged job notes and follow-ups</div>
+            <div style={{ color:'#7a8fa4', fontSize:'0.82rem', fontWeight:300 }}>{followUps.length > 0 ? `${followUps.length} follow-up${followUps.length > 1 ? 's' : ''} pending` : 'View logged job notes and follow-ups'}</div>
           </Link>
 
           <Link href="/dashboard/voice" className="card card-orange">
@@ -156,6 +170,12 @@ function DashboardInner() {
             <div className="card-icon" style={{ background:'rgba(231,76,60,0.05)', color:'#e74c3c' }}>OBJ</div>
             <div style={{ fontFamily:"'Syne', sans-serif", fontWeight:700, fontSize:'1rem', marginBottom:'6px' }}>Objection Coach</div>
             <div style={{ color:'#7a8fa4', fontSize:'0.82rem', fontWeight:300 }}>Instant rebuttals for any pushback at the door</div>
+          </Link>
+
+          <Link href="/dashboard/stats" className="card" style={{ borderColor:'rgba(241,196,15,0.15)', background:'rgba(241,196,15,0.03)' }}>
+            <div className="card-icon" style={{ background:'rgba(241,196,15,0.08)', color:'#f1c40f' }}>STAT</div>
+            <div style={{ fontFamily:"'Syne', sans-serif", fontWeight:700, fontSize:'1rem', marginBottom:'6px', color:'#f1c40f' }}>Your Numbers</div>
+            <div style={{ color:'#7a8fa4', fontSize:'0.82rem', fontWeight:300 }}>{winsThisWeek > 0 ? `${winsThisWeek} close${winsThisWeek > 1 ? 's' : ''} this week` : 'Win rate, closes, and performance'}</div>
           </Link>
         </div>
       </div>

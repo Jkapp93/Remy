@@ -4,7 +4,7 @@ import { useUser, UserButton } from '@clerk/nextjs';
 import Link from 'next/link';
 import Leaderboard from '../../components/Leaderboard';
 
-type Job = { id: string; customer_name: string; address: string; status: string; job_type: string; created_at: string };
+type Job = { id: string; customer_name: string; address: string; status: string; job_type: string; created_at: string; deal_value?: number };
 type Conversation = { id: string; summary: string; created_at: string; rep_id: string };
 type Doctrine = { id: string; content: string; type: string; created_at: string };
 type Profile = { id: string; clerk_id: string; full_name: string; email: string; role: string };
@@ -121,6 +121,7 @@ export default function BossDashboard() {
 
   const activeJobs = jobs.filter(j => j.status === 'active');
   const closedJobs = jobs.filter(j => j.status === 'closed');
+  const dealPipeline = activeJobs.reduce((sum, j) => sum + (j.deal_value || 0), 0);
 
   return (
     <div style={{ background: '#0b0f14', minHeight: '100vh', color: '#e8edf2', fontFamily: "'DM Sans', sans-serif" }}>
@@ -207,7 +208,7 @@ export default function BossDashboard() {
 
         <div style={{ display:'grid', gridTemplateColumns:'repeat(auto-fit, minmax(160px, 1fr))', gap:'12px', marginBottom:'28px' }}>
           {[
-            { label: 'Pipeline', value: `$${totalRevenue >= 1000 ? (totalRevenue / 1000).toFixed(0) + 'k' : totalRevenue.toLocaleString()}`, color: '#3daf76' },
+            { label: 'Deal Pipeline', value: dealPipeline > 0 ? `$${dealPipeline >= 1000 ? (dealPipeline / 1000).toFixed(0) + 'k' : dealPipeline.toLocaleString()}` : `$${totalRevenue >= 1000 ? (totalRevenue / 1000).toFixed(0) + 'k' : totalRevenue.toLocaleString()}`, color: '#3daf76' },
           { label: 'Active Jobs', value: activeJobs.length, color: '#f07a2e' },
             { label: 'Closed Jobs', value: closedJobs.length, color: '#3d5268' },
             { label: 'Conversations', value: conversations.length, color: '#f07a2e' },
@@ -282,6 +283,27 @@ export default function BossDashboard() {
                 </div>
               </div>
             )}
+              {profiles.length > 0 && (
+                <div style={{ marginTop:'16px', background:'#111820', border:'1px solid rgba(255,255,255,0.07)', borderRadius:'12px', padding:'20px' }}>
+                  <div style={{ fontSize:'0.68rem', fontWeight:600, letterSpacing:'0.12em', textTransform:'uppercase', color:'#3d5268', marginBottom:'14px' }}>Rep Activity</div>
+                  {profiles.map(p => {
+                    const repConvs = conversations.filter(c => c.rep_id === p.clerk_id);
+                    const lastConv = repConvs.reduce((latest: string, c: Conversation) => c.created_at > latest ? c.created_at : latest, '');
+                    return (
+                      <div key={p.id} className="data-row">
+                        <div>
+                          <div style={{ fontWeight:500, fontSize:'0.88rem' }}>{p.full_name || p.email}</div>
+                          <div style={{ fontSize:'0.68rem', color:'#2d3f52', marginTop:'2px', textTransform:'uppercase', letterSpacing:'0.06em' }}>{p.role}</div>
+                        </div>
+                        <div style={{ textAlign:'right' }}>
+                          <div style={{ fontSize:'0.88rem', color: repConvs.length > 0 ? '#f07a2e' : '#2d3f52', fontWeight:600 }}>{repConvs.length} session{repConvs.length !== 1 ? 's' : ''}</div>
+                          {lastConv && <div style={{ fontSize:'0.68rem', color:'#2d3f52', marginTop:'2px' }}>Last: {new Date(lastConv).toLocaleDateString('en-US', { month:'short', day:'numeric', hour:'numeric', minute:'2-digit' })}</div>}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
               <div style={{ marginTop:'16px' }}><Leaderboard companyId={company?.id || ''} /></div>
 
             {activeTab === 'jobs' && (

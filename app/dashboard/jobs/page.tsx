@@ -29,13 +29,14 @@ const PIPELINE_STAGES = [
 export default function JobsPage() {
   const { isLoaded } = useUser();
   const { profile } = useProfile();
-  const [jobs, setJobs] = useState<{id: string; customer_name: string; address: string; notes: string; status: string; job_type: string}[]>([]);
+  const [jobs, setJobs] = useState<{id: string; customer_name: string; address: string; notes: string; status: string; job_type: string; deal_value?: number}[]>([]);
   const [loading, setLoading] = useState(true);
   const [showNew, setShowNew] = useState(false);
   const [customerName, setCustomerName] = useState('');
   const [address, setAddress] = useState('');
   const [notes, setNotes] = useState('');
   const [jobType, setJobType] = useState('roofing');
+  const [dealValue, setDealValue] = useState('');
   const [saving, setSaving] = useState(false);
   const [filter, setFilter] = useState<'active' | 'all'>('active');
   const addressInputRef = useRef<HTMLInputElement>(null);
@@ -43,11 +44,12 @@ export default function JobsPage() {
   const autocompleteRef = useRef<any>(null);
   const editAutocompleteRef = useRef<any>(null);
   const [confirmDelete, setConfirmDelete] = useState<string | null>(null);
-  const [editJob, setEditJob] = useState<{id: string; customer_name: string; address: string; notes: string; status: string; job_type: string} | null>(null);
+  const [editJob, setEditJob] = useState<{id: string; customer_name: string; address: string; notes: string; status: string; job_type: string; deal_value?: number} | null>(null);
   const [editName, setEditName] = useState('');
   const [editAddress, setEditAddress] = useState('');
   const [editNotes, setEditNotes] = useState('');
   const [editType, setEditType] = useState('other');
+  const [editDealValue, setEditDealValue] = useState('');
   const [editSaving, setEditSaving] = useState(false);
   const [showMap, setShowMap] = useState(false);
   const [viewMode, setViewMode] = useState<'list' | 'pipeline'>('list');
@@ -201,12 +203,16 @@ export default function JobsPage() {
   const createJob = async () => {
     if (!customerName.trim()) return;
     setSaving(true);
-    await fetch('/api/jobs', {
+    const res = await fetch('/api/jobs', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ customer_name: customerName, address, notes, job_type: jobType, company_id: profile?.company_id || null }),
     });
-    setCustomerName(''); setAddress(''); setNotes(''); setJobType('roofing');
+    const created = await res.json();
+    if (created.job?.id && dealValue) {
+      fetch('/api/jobs', { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id: created.job.id, deal_value: Number(dealValue) }) }).catch(() => {});
+    }
+    setCustomerName(''); setAddress(''); setNotes(''); setJobType('roofing'); setDealValue('');
     setShowNew(false); setSaving(false); loadJobs();
   };
 
@@ -221,12 +227,13 @@ export default function JobsPage() {
     loadJobs();
   };
 
-  const openEdit = (job: {id: string; customer_name: string; address: string; notes: string; status: string; job_type: string}) => {
+  const openEdit = (job: {id: string; customer_name: string; address: string; notes: string; status: string; job_type: string; deal_value?: number}) => {
     setEditJob(job);
     setEditName(job.customer_name);
     setEditAddress(job.address);
     setEditNotes(job.notes);
     setEditType(job.job_type || 'other');
+    setEditDealValue(job.deal_value ? String(job.deal_value) : '');
   };
 
   const saveEdit = async () => {
@@ -237,6 +244,9 @@ export default function JobsPage() {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ id: editJob.id, customer_name: editName, address: editAddress, notes: editNotes, job_type: editType }),
     });
+    if (editDealValue) {
+      fetch('/api/jobs', { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id: editJob.id, deal_value: Number(editDealValue) }) }).catch(() => {});
+    }
     setEditJob(null);
     setEditSaving(false);
     loadJobs();
@@ -312,7 +322,8 @@ export default function JobsPage() {
                 <option key={jt.value} value={jt.value}>{jt.label}</option>
               ))}
             </select>
-            <textarea value={editNotes} onChange={e => setEditNotes(e.target.value)} placeholder="Notes" rows={3} style={{ width:'100%', background:'#0b0f14', border:'1px solid rgba(255,255,255,0.08)', borderRadius:'8px', padding:'10px 14px', color:'#e8edf2', fontFamily:"'DM Sans',sans-serif", fontSize:'0.9rem', outline:'none', resize:'vertical', marginBottom:'14px' }} />
+            <textarea value={editNotes} onChange={e => setEditNotes(e.target.value)} placeholder="Notes" rows={3} style={{ width:'100%', background:'#0b0f14', border:'1px solid rgba(255,255,255,0.08)', borderRadius:'8px', padding:'10px 14px', color:'#e8edf2', fontFamily:"'DM Sans',sans-serif", fontSize:'0.9rem', outline:'none', resize:'vertical', marginBottom:'10px' }} />
+            <input value={editDealValue} onChange={e => setEditDealValue(e.target.value)} placeholder="Estimated deal value (e.g. 18500)" type="number" style={{ width:'100%', background:'#0b0f14', border:'1px solid rgba(255,255,255,0.08)', borderRadius:'8px', padding:'10px 14px', color:'#e8edf2', fontFamily:"'DM Sans',sans-serif", fontSize:'0.9rem', outline:'none', marginBottom:'14px' }} />
             <div style={{ display:'flex', gap:'10px' }}>
               <button onClick={saveEdit} disabled={editSaving} style={{ flex:1, padding:'11px', background:'#f07a2e', border:'none', borderRadius:'8px', color:'#fff', fontFamily:"'DM Sans',sans-serif", fontSize:'0.88rem', fontWeight:500, cursor:'pointer' }}>{editSaving ? 'Saving...' : 'Save Changes'}</button>
               <button onClick={() => setEditJob(null)} style={{ flex:1, padding:'11px', background:'transparent', border:'1px solid rgba(255,255,255,0.08)', borderRadius:'8px', color:'#7a8fa4', fontFamily:"'DM Sans',sans-serif", fontSize:'0.88rem', cursor:'pointer' }}>Cancel</button>
@@ -377,7 +388,8 @@ export default function JobsPage() {
                 <option key={jt.value} value={jt.value}>{jt.label}</option>
               ))}
             </select>
-            <textarea value={notes} onChange={e => setNotes(e.target.value)} placeholder="Notes about this job" rows={3} style={{ width:'100%', background:'#0b0f14', border:'1px solid rgba(255,255,255,0.08)', borderRadius:'8px', padding:'10px 14px', color:'#e8edf2', fontFamily:"'DM Sans', sans-serif", fontSize:'0.9rem', outline:'none', resize:'vertical', marginBottom:'14px' }} />
+            <textarea value={notes} onChange={e => setNotes(e.target.value)} placeholder="Notes about this job" rows={3} style={{ width:'100%', background:'#0b0f14', border:'1px solid rgba(255,255,255,0.08)', borderRadius:'8px', padding:'10px 14px', color:'#e8edf2', fontFamily:"'DM Sans', sans-serif", fontSize:'0.9rem', outline:'none', resize:'vertical', marginBottom:'10px' }} />
+            <input value={dealValue} onChange={e => setDealValue(e.target.value)} placeholder="Estimated deal value (e.g. 18500)" type="number" style={{ width:'100%', background:'#0b0f14', border:'1px solid rgba(255,255,255,0.08)', borderRadius:'8px', padding:'10px 14px', color:'#e8edf2', fontFamily:"'DM Sans', sans-serif", fontSize:'0.9rem', outline:'none', marginBottom:'14px' }} />
             <div style={{ display:'flex', gap:'10px' }}>
               <button onClick={createJob} disabled={saving} style={{ background:'#f07a2e', color:'#fff', border:'none', padding:'10px 20px', borderRadius:'8px', fontFamily:"'DM Sans', sans-serif", fontSize:'0.85rem', fontWeight:500, cursor:'pointer' }}>{saving ? 'Saving...' : 'Create Job'}</button>
               <button onClick={() => setShowNew(false)} style={{ background:'transparent', color:'#7a8fa4', border:'1px solid rgba(255,255,255,0.08)', padding:'10px 20px', borderRadius:'8px', fontFamily:"'DM Sans', sans-serif", fontSize:'0.85rem', cursor:'pointer' }}>Cancel</button>
@@ -459,7 +471,10 @@ export default function JobsPage() {
                       </div>
                       {job.address && <div style={{ fontSize:'0.82rem', color:'#7a8fa4', fontWeight:300, marginBottom:'3px' }}>{job.address}</div>}
                       {job.notes && <div style={{ fontSize:'0.75rem', color:'#3d5268', marginTop:'4px' }}>{job.notes}</div>}
-                      <div style={{ fontSize:'0.62rem', color: job.status === 'active' ? '#3daf76' : '#3d5268', marginTop:'6px', textTransform:'uppercase', letterSpacing:'0.08em', fontWeight:600 }}>{job.status}</div>
+                      <div style={{ display:'flex', alignItems:'center', gap:'10px', marginTop:'6px' }}>
+                        <div style={{ fontSize:'0.62rem', color: job.status === 'active' ? '#3daf76' : '#3d5268', textTransform:'uppercase', letterSpacing:'0.08em', fontWeight:600 }}>{job.status}</div>
+                        {job.deal_value ? <div style={{ fontSize:'0.72rem', color:'#f07a2e', fontWeight:600 }}>${job.deal_value.toLocaleString()}</div> : null}
+                      </div>
                     </div>
                     <div className="job-action-row" style={{ display:'flex', gap:'6px', alignItems:'center', flexShrink:0, flexWrap:'wrap', justifyContent:'flex-end' }} onClick={e => e.stopPropagation()}>
                       {job.status === 'active' && (

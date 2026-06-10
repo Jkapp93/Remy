@@ -1,6 +1,7 @@
 ﻿import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import Anthropic from '@anthropic-ai/sdk';
+import { auth } from '@clerk/nextjs/server';
 
 export async function POST(req: NextRequest) {
   const supabase = createClient(
@@ -9,8 +10,11 @@ export async function POST(req: NextRequest) {
   );
   const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
   try {
+    const { userId } = await auth();
     const { repId, jobId, rawNote, jobName } = await req.json();
     if (!repId || !rawNote) return NextResponse.json({ error: 'Missing fields' }, { status: 400 });
+    if (!userId || userId !== repId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    if (rawNote.length > 2000) return NextResponse.json({ error: 'Note too long' }, { status: 400 });
 
     // Use Claude to structure the note
     const structured = await anthropic.messages.create({
@@ -86,6 +90,12 @@ export async function GET(req: NextRequest) {
   const jobId = searchParams.get('jobId');
   const repId = searchParams.get('repId');
   const companyId = searchParams.get('companyId');
+
+  // Auth gate: repId queries must match the authenticated user
+  if (repId) {
+    const { userId } = await auth();
+    if (!userId || userId !== repId) return NextResponse.json({ notes: [] }, { status: 401 });
+  }
 
   let query = supabase.from('job_notes').select('*').order('created_at', { ascending: false }).limit(50);
 

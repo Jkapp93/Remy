@@ -63,6 +63,8 @@ export async function GET(req: NextRequest) {
     const { searchParams } = new URL(req.url);
     const repId = searchParams.get('repId');
     if (!repId) return NextResponse.json({ memories: [] });
+    const { userId } = await auth();
+    if (!userId || userId !== repId) return NextResponse.json({ memories: [] }, { status: 401 });
 
     // Fetch synthesis insight first (highest signal), then recent conversation/outcome memories
     const [synthData, recentData] = await Promise.all([

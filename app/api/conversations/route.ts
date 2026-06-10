@@ -1,5 +1,6 @@
 ﻿import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
+import { auth } from '@clerk/nextjs/server';
 
 export async function POST(req: NextRequest) {
   try {
@@ -9,6 +10,10 @@ export async function POST(req: NextRequest) {
     );
     const body = await req.json();
     const { jobId, repId, messages, summary } = body;
+    if (repId) {
+      const { userId } = await auth();
+      if (!userId || userId !== repId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    }
 
     let companyId = null;
     if (repId) {
