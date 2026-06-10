@@ -102,12 +102,13 @@ export async function POST(req: NextRequest) {
       if (count >= limit) {
         return NextResponse.json({ message: `You've used all ${limit} messages for today. Resets at midnight.`, rateLimited: true });
       }
-      // Increment usage — fire and forget
-      if (usageRes.data) {
-        void supabase.from('usage_daily').update({ count: count + 1 }).eq('id', usageRes.data.id);
-      } else {
-        void supabase.from('usage_daily').insert({ rep_id: repId, date: today, count: 1 });
-      }
+      // Increment usage — atomic upsert via RPC. Note: supabase-js queries
+      // are lazy; `.then()` is what actually starts them, so never `void` a
+      // bare query builder (that was a no-op and broke rate limiting).
+      supabase.rpc('increment_usage', { p_rep_id: repId, p_date: today }).then(
+        () => {},
+        (e) => console.error('Usage increment failed:', e)
+      );
     } else {
       // Unauthenticated demo traffic: hard daily cap per IP so /api/chat
       // can't be farmed as a free Claude proxy.
@@ -119,11 +120,9 @@ export async function POST(req: NextRequest) {
       if (demoCount >= 10) {
         return NextResponse.json({ message: "That's the demo limit for today. Sign up to keep talking to Remy.", rateLimited: true });
       }
-      if (demoUsage) {
-        void supabase.from('usage_daily').update({ count: demoCount + 1 }).eq('id', demoUsage.id);
-      } else {
-        void supabase.from('usage_daily').insert({ rep_id: ipKey, date: today, count: 1 });
-      }
+      // Await this one: demo abuse is exactly when we can't afford a lost increment
+      const { error: incErr } = await supabase.rpc('increment_usage', { p_rep_id: ipKey, p_date: today });
+      if (incErr) console.error('Demo usage increment failed:', incErr);
     }
 
     const today = new Date().toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' });
