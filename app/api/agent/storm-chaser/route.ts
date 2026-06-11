@@ -5,13 +5,19 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import Anthropic from '@anthropic-ai/sdk';
+import { resolveCompanyId } from '@/lib/apiAuth';
 
 export async function POST(req: NextRequest) {
   const supabase = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!);
   const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
   try {
-    const { companyId, stormLocation, stormType, affectedZipCodes } = await req.json();
-    if (!companyId || !stormLocation) return NextResponse.json({ error: 'Missing required fields' }, { status: 400 });
+    const callerCompanyId = await resolveCompanyId(req, supabase);
+    if (!callerCompanyId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+
+    const { companyId: requestedCompanyId, stormLocation, stormType, affectedZipCodes } = await req.json();
+    if (!requestedCompanyId || !stormLocation) return NextResponse.json({ error: 'Missing required fields' }, { status: 400 });
+    if (requestedCompanyId !== callerCompanyId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    const companyId = callerCompanyId;
 
     // Get active reps for this company
     const { data: reps } = await supabase.from('profiles').select('clerk_id, full_name').eq('company_id', companyId).eq('role', 'rep');

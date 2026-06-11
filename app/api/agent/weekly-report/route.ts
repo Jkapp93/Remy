@@ -6,14 +6,19 @@ import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import Anthropic from '@anthropic-ai/sdk';
 import { Resend } from 'resend';
+import { resolveCompanyId } from '@/lib/apiAuth';
 
 export async function POST(req: NextRequest) {
   const supabase = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!);
   const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
   const resend = new Resend(process.env.RESEND_API_KEY);
   try {
+    const callerCompanyId = await resolveCompanyId(req, supabase);
+    if (!callerCompanyId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+
     const { companyId } = await req.json();
     if (!companyId) return NextResponse.json({ error: 'Missing companyId' }, { status: 400 });
+    if (companyId !== callerCompanyId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
     const weekAgo = new Date();
     weekAgo.setDate(weekAgo.getDate() - 7);

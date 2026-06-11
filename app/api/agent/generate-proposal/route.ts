@@ -5,17 +5,23 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import Anthropic from '@anthropic-ai/sdk';
+import { resolveCompanyId } from '@/lib/apiAuth';
 
 export async function POST(req: NextRequest) {
   const supabase = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!);
   const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
   try {
-    const { jobId, repId, companyId } = await req.json();
+    const callerCompanyId = await resolveCompanyId(req, supabase);
+    if (!callerCompanyId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+
+    const { jobId, repId } = await req.json();
     if (!jobId) return NextResponse.json({ error: 'Missing jobId' }, { status: 400 });
 
-    // Get job details
+    // Get job details — must belong to the caller's company
     const { data: job } = await supabase.from('jobs').select('*').eq('id', jobId).single();
     if (!job) return NextResponse.json({ error: 'Job not found' }, { status: 404 });
+    if (job.company_id !== callerCompanyId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    const companyId = callerCompanyId;
 
     // Get latest notes for this job
     const { data: notes } = await supabase.from('job_notes').select('*').eq('job_id', jobId).order('created_at', { ascending: false }).limit(5);

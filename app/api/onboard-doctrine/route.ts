@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import Anthropic from '@anthropic-ai/sdk';
 import { createClient } from '@supabase/supabase-js';
+import { auth } from '@clerk/nextjs/server';
 
 function stripHtml(html: string): string {
   return html
@@ -19,8 +20,13 @@ export async function POST(req: NextRequest) {
     process.env.SUPABASE_SERVICE_ROLE_KEY!
   );
   try {
+    const { userId } = await auth();
+    if (!userId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     const { websiteUrl, companyId, trade } = await req.json();
     if (!websiteUrl || !companyId) return NextResponse.json({ error: 'Missing params' }, { status: 400 });
+    // Caller must belong to the company they're seeding doctrine for
+    const { data: caller } = await supabase.from('profiles').select('company_id').eq('clerk_id', userId).single();
+    if (!caller || caller.company_id !== companyId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
     const url = websiteUrl.startsWith('http') ? websiteUrl : `https://${websiteUrl}`;
     const pageRes = await fetch(url, { headers: { 'User-Agent': 'Mozilla/5.0' } }).catch(() => null);

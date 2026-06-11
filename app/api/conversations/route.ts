@@ -1,6 +1,7 @@
-﻿import { NextRequest, NextResponse } from 'next/server';
+import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { auth } from '@clerk/nextjs/server';
+import { resolveCompanyId } from '@/lib/apiAuth';
 
 export async function POST(req: NextRequest) {
   try {
@@ -8,27 +9,22 @@ export async function POST(req: NextRequest) {
       process.env.NEXT_PUBLIC_SUPABASE_URL!,
       process.env.SUPABASE_SERVICE_ROLE_KEY!
     );
-    const body = await req.json();
-    const { jobId, repId, messages, summary } = body;
-    if (repId) {
-      const { userId } = await auth();
-      if (!userId || userId !== repId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-    }
+    const { userId } = await auth();
+    if (!userId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
-    let companyId = null;
-    if (repId) {
-      const { data: profile } = await supabase
-        .from('profiles')
-        .select('company_id')
-        .eq('clerk_id', repId)
-        .single();
-      companyId = profile?.company_id || null;
-    }
+    const body = await req.json();
+    const { jobId, summary } = body;
+
+    const { data: profile } = await supabase
+      .from('profiles')
+      .select('company_id')
+      .eq('clerk_id', userId)
+      .single();
 
     const { error } = await supabase.from('conversations').insert({
       job_id: jobId || null,
-      rep_id: repId || null,
-      company_id: companyId,
+      rep_id: userId,
+      company_id: profile?.company_id || null,
       summary: summary || null,
       created_at: new Date().toISOString(),
     });
@@ -51,18 +47,19 @@ export async function GET(req: NextRequest) {
       process.env.NEXT_PUBLIC_SUPABASE_URL!,
       process.env.SUPABASE_SERVICE_ROLE_KEY!
     );
+    const companyId = await resolveCompanyId(req, supabase);
+    if (!companyId) return NextResponse.json({ conversations: [] });
+
     const { searchParams } = new URL(req.url);
-    const companyId = searchParams.get('companyId');
     const repId = searchParams.get('repId');
 
     let query = supabase
       .from('conversations')
       .select('*')
+      .eq('company_id', companyId)
       .order('created_at', { ascending: false })
       .limit(50);
-
-    if (companyId) query = query.eq('company_id', companyId);
-    else if (repId) query = query.eq('rep_id', repId);
+    if (repId) query = query.eq('rep_id', repId);
 
     const { data, error } = await query;
     if (error) console.error('Conversations GET error:', error);

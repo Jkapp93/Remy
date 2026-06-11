@@ -1,4 +1,7 @@
-﻿import { NextRequest, NextResponse } from 'next/server';
+import { NextRequest, NextResponse } from 'next/server';
+import { createHash } from 'node:crypto';
+import { createClient } from '@supabase/supabase-js';
+import { auth } from '@clerk/nextjs/server';
 
 const VOICES: Record<string, string> = {
   'f786b574-daa5-4673-aa0c-cbe3e8534c02': 'Remy',
@@ -15,6 +18,28 @@ export async function POST(req: NextRequest) {
   try {
     const { text, voiceId } = await req.json();
     if (!text) return NextResponse.json({ error: 'No text' }, { status: 400 });
+
+    // Authed users (Clerk session) and the mobile app are unrestricted.
+    // Demo traffic gets a per-IP daily cap + text length cap so the
+    // endpoint can't be farmed as a free Cartesia proxy.
+    const { userId } = await auth();
+    const bearer = req.headers.get('authorization')?.replace(/^Bearer\s+/i, '');
+    const isMobile = !!bearer && !!process.env.MOBILE_API_TOKEN && bearer === process.env.MOBILE_API_TOKEN;
+    if (!userId && !isMobile) {
+      if (typeof text !== 'string' || text.length > 600) {
+        return NextResponse.json({ error: 'Text too long for demo' }, { status: 400 });
+      }
+      const supabase = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!);
+      const ip = req.headers.get('x-forwarded-for')?.split(',')[0]?.trim() || 'unknown';
+      const ipKey = `voicedemo:${createHash('sha256').update(ip).digest('hex').slice(0, 32)}`;
+      const today = new Date().toISOString().split('T')[0];
+      const { data: usage } = await supabase.from('usage_daily').select('count').eq('rep_id', ipKey).eq('date', today).single();
+      if ((usage?.count || 0) >= 20) {
+        return NextResponse.json({ error: 'Demo voice limit reached for today' }, { status: 429 });
+      }
+      const { error: incErr } = await supabase.rpc('increment_usage', { p_rep_id: ipKey, p_date: today });
+      if (incErr) console.error('Voice demo usage increment failed:', incErr);
+    }
 
     const selectedVoice = (voiceId && VOICES[voiceId]) ? voiceId : DEFAULT_VOICE;
 

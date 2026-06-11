@@ -1,9 +1,13 @@
 ﻿import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { Resend } from 'resend';
+import { auth } from '@clerk/nextjs/server';
+import { randomBytes } from 'node:crypto';
 
 function generateToken() {
-  return Math.random().toString(36).substring(2, 10).toUpperCase();
+  // 8 chars from a CSPRNG, unambiguous alphabet
+  const alphabet = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+  return Array.from(randomBytes(8)).map(b => alphabet[b % alphabet.length]).join('');
 }
 
 export async function POST(req: NextRequest) {
@@ -13,8 +17,15 @@ export async function POST(req: NextRequest) {
       process.env.SUPABASE_SERVICE_ROLE_KEY!
     );
     const resend = new Resend(process.env.RESEND_API_KEY);
+    const { userId } = await auth();
+    if (!userId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     const { email, companyId, companyName, role = 'rep' } = await req.json();
     if (!email || !companyId) return NextResponse.json({ error: 'Missing fields' }, { status: 400 });
+    // Only an owner of this company can invite to it
+    const { data: caller } = await supabase.from('profiles').select('company_id, role').eq('clerk_id', userId).single();
+    if (!caller || caller.company_id !== companyId || caller.role !== 'owner') {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    }
 
     const token = generateToken();
 

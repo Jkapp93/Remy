@@ -16,10 +16,9 @@ export async function POST(req: NextRequest) {
       process.env.SUPABASE_SERVICE_ROLE_KEY!
     );
     const { messages, repId, jobContext } = await req.json();
-    if (repId) {
-      const { userId } = await auth();
-      if (!userId || userId !== repId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-    }
+    // Always require a session — this route burns a Sonnet call per hit
+    const { userId } = await auth();
+    if (!userId || !repId || userId !== repId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     if (!messages || messages.length < 2) return NextResponse.json({ success: false });
 
     const conversationText = messages

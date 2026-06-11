@@ -5,13 +5,20 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import Anthropic from '@anthropic-ai/sdk';
+import { resolveCompanyId } from '@/lib/apiAuth';
 
 export async function POST(req: NextRequest) {
   const supabase = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!);
   const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
   try {
+    const callerCompanyId = await resolveCompanyId(req, supabase);
+    if (!callerCompanyId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+
     const { repId, companyId } = await req.json();
     if (!repId) return NextResponse.json({ error: 'Missing repId' }, { status: 400 });
+    // The rep being coached must belong to the caller's company
+    const { data: repProfile } = await supabase.from('profiles').select('company_id').eq('clerk_id', repId).single();
+    if (!repProfile || repProfile.company_id !== callerCompanyId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
     const weekAgo = new Date();
     weekAgo.setDate(weekAgo.getDate() - 7);

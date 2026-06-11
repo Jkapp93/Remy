@@ -1,7 +1,15 @@
 ﻿import { NextRequest, NextResponse } from 'next/server';
+import { auth } from '@clerk/nextjs/server';
 
 export async function POST(req: NextRequest) {
   try {
+    // Deepgram costs money per minute — dashboard sessions and the
+    // mobile app only.
+    const { userId } = await auth();
+    const bearer = req.headers.get('authorization')?.replace(/^Bearer\s+/i, '');
+    const isMobile = !!bearer && !!process.env.MOBILE_API_TOKEN && bearer === process.env.MOBILE_API_TOKEN;
+    if (!userId && !isMobile) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+
     const formData = await req.formData();
     const audio = formData.get('audio') as File;
     if (!audio) return NextResponse.json({ error: 'No audio' }, { status: 400 });

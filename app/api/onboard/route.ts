@@ -1,5 +1,6 @@
 ﻿import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
+import { auth } from '@clerk/nextjs/server';
 
 export async function POST(req: NextRequest) {
   try {
@@ -7,9 +8,11 @@ export async function POST(req: NextRequest) {
       process.env.NEXT_PUBLIC_SUPABASE_URL!,
       process.env.SUPABASE_SERVICE_ROLE_KEY!
     );
-    const { clerkId, companyName, fullName, email, inviteToken, agentName } = await req.json();
-
-    if (!clerkId) return NextResponse.json({ error: 'No clerkId' }, { status: 400 });
+    // Identity comes from the session, never the request body
+    const { userId } = await auth();
+    if (!userId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    const { companyName, fullName, email, inviteToken, agentName } = await req.json();
+    const clerkId = userId;
 
     // Check if joining via invite
     if (inviteToken) {
