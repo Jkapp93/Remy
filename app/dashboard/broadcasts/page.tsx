@@ -27,21 +27,24 @@ export default function BroadcastHistoryPage() {
       }).catch(() => setLoading(false));
   }, [isLoaded, user]);
 
-  const loadBroadcasts = async (cId: string) => {
+  const loadBroadcasts = async (_cId: string) => {
     setLoading(true);
-    const { data } = await supabase
-      .from('doctrine')
-      .select('*')
-      .eq('company_id', cId)
-      .eq('type', 'broadcast')
-      .order('created_at', { ascending: false })
-      .limit(50);
-    setBroadcasts(data || []);
+    try {
+      const res = await fetch('/api/doctrine?type=broadcast&includeInactive=1');
+      const data = await res.json();
+      setBroadcasts(data.items || []);
+    } catch {
+      setBroadcasts([]);
+    }
     setLoading(false);
   };
 
   const toggleActive = async (id: string, current: boolean) => {
-    await supabase.from('doctrine').update({ active: !current }).eq('id', id);
+    await fetch('/api/doctrine', {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ id, active: !current }),
+    });
     setBroadcasts(prev => prev.map(b => b.id === id ? { ...b, active: !current } : b));
   };
 

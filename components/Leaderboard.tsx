@@ -3,12 +3,6 @@
 
 'use client';
 import { useState, useEffect } from 'react';
-import { createClient } from '@supabase/supabase-js';
-
-const supabase = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
-);
 
 type RepStats = {
   repId: string;
@@ -31,39 +25,13 @@ export default function Leaderboard({ companyId }: { companyId: string }) {
 
   const loadStats = async () => {
     setLoading(true);
-    const weekAgo = new Date();
-    weekAgo.setDate(weekAgo.getDate() - 7);
-    const weekAgoStr = weekAgo.toISOString();
-
-    const [profilesRes, convosRes, notesRes] = await Promise.all([
-      supabase.from('profiles').select('clerk_id, full_name').eq('company_id', companyId),
-      supabase.from('conversations').select('rep_id').eq('company_id', companyId).gte('created_at', weekAgoStr),
-      supabase.from('job_notes').select('rep_id, outcome').gte('created_at', weekAgoStr),
-    ]);
-
-    const profiles = profilesRes.data || [];
-    const convos = convosRes.data || [];
-    const notes = notesRes.data || [];
-
-    const repStats: RepStats[] = profiles.map(p => {
-      const repConvos = convos.filter((c: any) => c.rep_id === p.clerk_id).length;
-      const repNotes = notes.filter((n: any) => n.rep_id === p.clerk_id).length;
-      const repSold = notes.filter((n: any) => n.rep_id === p.clerk_id && n.outcome === 'sold').length;
-      const repFollowUps = notes.filter((n: any) => n.rep_id === p.clerk_id && n.outcome === 'follow_up').length;
-      const score = repConvos * 1 + repNotes * 2 + repSold * 5 + repFollowUps * 1;
-      return {
-        repId: p.clerk_id,
-        name: p.full_name || 'Unknown Rep',
-        conversations: repConvos,
-        notes: repNotes,
-        sold: repSold,
-        followUps: repFollowUps,
-        score,
-      };
-    });
-
-    repStats.sort((a, b) => b.score - a.score);
-    setStats(repStats);
+    try {
+      const res = await fetch('/api/leaderboard');
+      const data = await res.json();
+      setStats(data.stats || []);
+    } catch {
+      setStats([]);
+    }
     setLoading(false);
   };
 

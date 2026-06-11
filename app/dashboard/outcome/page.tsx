@@ -34,7 +34,11 @@ function OutcomeContent() {
     setSaving(true);
     if (jobId) {
       const mappedStatus = outcomeId === 'sold' || outcomeId === 'no_sale' ? 'closed' : 'active';
-      await supabase.from('jobs').update({ status: mappedStatus }).eq('id', jobId);
+      await fetch('/api/jobs', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id: jobId, status: mappedStatus }),
+      });
     }
     await fetch('/api/notes', {
       method: 'POST',

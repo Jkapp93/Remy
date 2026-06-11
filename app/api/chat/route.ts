@@ -69,9 +69,15 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ message: 'Message too long. Keep it under 4000 characters.', rateLimited: false });
     }
 
+    // The internal field app authenticates with a shared bearer token.
+    // It gets the real model and its own usage bucket, and a JSON (non-
+    // streaming) response since the app reads data.message.
+    const bearer = req.headers.get('authorization')?.replace(/^Bearer\s+/i, '');
+    const isMobile = !!bearer && !!process.env.MOBILE_API_TOKEN && bearer === process.env.MOBILE_API_TOKEN;
+
     // systemOverride is only permitted for unauthenticated demo requests.
     // When a real repId + valid session is present, strip it to prevent prompt injection.
-    const safeSystemOverride = repId ? null : (typeof systemOverride === 'string' ? systemOverride.slice(0, 2000) : null);
+    const safeSystemOverride = repId || isMobile ? null : (typeof systemOverride === 'string' ? systemOverride.slice(0, 2000) : null);
 
     const lastMsg = messages[messages.length - 1]?.content || '';
     const lastMsgLower = typeof lastMsg === 'string' ? lastMsg.toLowerCase() : '';
@@ -109,6 +115,16 @@ export async function POST(req: NextRequest) {
         () => {},
         (e) => console.error('Usage increment failed:', e)
       );
+    } else if (isMobile) {
+      // Field app: generous daily cap as an abuse ceiling.
+      const today = new Date().toISOString().split('T')[0];
+      const mobileKey = `mobile:${process.env.MOBILE_COMPANY_ID || 'app'}`;
+      const { data: mobileUsage } = await supabase.from('usage_daily').select('count').eq('rep_id', mobileKey).eq('date', today).single();
+      if ((mobileUsage?.count || 0) >= 500) {
+        return NextResponse.json({ message: 'Daily mobile limit reached. Resets at midnight.', rateLimited: true });
+      }
+      const { error: incErr } = await supabase.rpc('increment_usage', { p_rep_id: mobileKey, p_date: today });
+      if (incErr) console.error('Mobile usage increment failed:', incErr);
     } else {
       // Unauthenticated demo traffic: hard daily cap per IP so /api/chat
       // can't be farmed as a free Claude proxy.
@@ -193,14 +209,22 @@ ${jobContext ? `\nCURRENT JOB:\n${jobContext}\n` : ''}${memorySection}${contextA
     // Stream Claude response — client receives text as it generates
     const claudeStream = anthropic.messages.stream({
       // Demo traffic gets Haiku + a tighter cap — plenty for a taste, useless as a proxy
-      model: repId ? 'claude-sonnet-4-6' : 'claude-haiku-4-5-20251001',
-      max_tokens: isMorningBrief ? 500 : repId ? 300 : 200,
+      model: repId || isMobile ? 'claude-sonnet-4-6' : 'claude-haiku-4-5-20251001',
+      max_tokens: isMorningBrief ? 500 : repId || isMobile ? 300 : 200,
       system: safeSystemOverride || [
         { type: 'text', text: staticSoul, cache_control: { type: 'ephemeral' } },
         { type: 'text', text: dynamicContext },
       ],
       messages: trimmedMessages,
     });
+
+    // The mobile app reads data.message (no streaming) — wait for the
+    // full reply and return JSON. No side effects fire without a repId.
+    if (isMobile) {
+      const finalMsg = await claudeStream.finalMessage();
+      const text = finalMsg.content.filter((b): b is Anthropic.TextBlock => b.type === 'text').map(b => b.text).join('');
+      return NextResponse.json({ message: text });
+    }
 
     let fullText = '';
     const encoder = new TextEncoder();

@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { auth } from '@clerk/nextjs/server';
+import { resolveCompanyId } from '@/lib/apiAuth';
 
 export async function GET(req: NextRequest) {
   try {
@@ -8,22 +9,16 @@ export async function GET(req: NextRequest) {
       process.env.NEXT_PUBLIC_SUPABASE_URL!,
       process.env.SUPABASE_SERVICE_ROLE_KEY!
     );
+    const resolvedCompanyId = await resolveCompanyId(req, supabase);
+    if (!resolvedCompanyId) return NextResponse.json({ items: [] });
+
     const { searchParams } = new URL(req.url);
-    const clerkId = searchParams.get('clerkId');
-    const companyId = searchParams.get('companyId');
+    const type = searchParams.get('type');
+    const includeInactive = searchParams.get('includeInactive') === '1';
 
-    let resolvedCompanyId = companyId;
-    if (!resolvedCompanyId && clerkId) {
-      const { data: profile } = await supabase
-        .from('profiles')
-        .select('company_id')
-        .eq('clerk_id', clerkId)
-        .single();
-      resolvedCompanyId = profile?.company_id || null;
-    }
-
-    let query = supabase.from('doctrine').select('id, content, type, created_at').eq('active', true).order('created_at', { ascending: false });
-    if (resolvedCompanyId) query = query.eq('company_id', resolvedCompanyId);
+    let query = supabase.from('doctrine').select('id, content, type, active, created_at').eq('company_id', resolvedCompanyId).order('created_at', { ascending: false }).limit(50);
+    if (!includeInactive) query = query.eq('active', true);
+    if (type) query = query.eq('type', type);
 
     const { data } = await query;
     return NextResponse.json({ items: data || [] });

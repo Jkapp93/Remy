@@ -31,15 +31,13 @@ function TimelineContent() {
 
   const loadTimeline = async () => {
     setLoading(true);
-    const [notesRes, convosRes] = await Promise.all([
-      supabase.from('job_notes').select('*').eq('job_id', jobId).order('created_at', { ascending: true }),
-      supabase.from('conversations').select('*').eq('job_id', jobId).order('created_at', { ascending: true }),
-    ]);
-
-    const notes = (notesRes.data || []).map((n: any) => ({ ...n, type: 'note' }));
-    const convos = (convosRes.data || []).map((c: any) => ({ ...c, type: 'conversation' }));
-    const all = [...notes, ...convos].sort((a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime());
-    setEvents(all);
+    try {
+      const res = await fetch(`/api/timeline?jobId=${encodeURIComponent(jobId!)}`);
+      const data = await res.json();
+      setEvents(data.events || []);
+    } catch {
+      setEvents([]);
+    }
     setLoading(false);
   };
 
