@@ -98,6 +98,10 @@ function VoicePageInner() {
   // Arrival detection: geocoded coords of the active job + hysteresis state
   const jobGeoRef = useRef<{ jobId: string; lat: number; lng: number } | null>(null);
   const arrivalStateRef = useRef<{ jobId: string; wasFar: boolean; fired: boolean } | null>(null);
+  // Keep the screen awake during hands-free — a locked screen suspends the
+  // mic and audio, silently ending Remy's session mid-day.
+  const wakeLockRef = useRef<any>(null);
+  const followUpsRef = useRef<{ summary?: string; follow_up_date?: string }[]>([]);
   const photoInputRef = useRef<HTMLInputElement | null>(null);
   const setHandsFreeWithPreference = (next: boolean) => {
     setHandsFree(next);
@@ -270,6 +274,19 @@ function VoicePageInner() {
     doSend(text, sessionMessagesRef.current, doctrineRef.current, activeJobRef.current, memoriesRef.current);
   };
 
+  const acquireWakeLock = async () => {
+    try {
+      if (typeof navigator === 'undefined' || !('wakeLock' in navigator) || wakeLockRef.current) return;
+      wakeLockRef.current = await (navigator as any).wakeLock.request('screen');
+      wakeLockRef.current?.addEventListener?.('release', () => { wakeLockRef.current = null; });
+    } catch {}
+  };
+
+  const releaseWakeLock = () => {
+    try { wakeLockRef.current?.release(); } catch {}
+    wakeLockRef.current = null;
+  };
+
   const metersBetween = (a: {lat: number; lng: number}, b: {lat: number; lng: number}) => {
     const toRad = (d: number) => (d * Math.PI) / 180;
     const dLat = toRad(b.lat - a.lat);
@@ -426,6 +443,7 @@ function VoicePageInner() {
     setMemories(memData.memories || []);
     const pendingFollowUps = (notesData.notes || []).filter((n: any) => n.follow_up_date);
     setFollowUpCount(pendingFollowUps.length);
+    followUpsRef.current = pendingFollowUps.slice(0, 5);
 
     // Compute close streak from rep_memory
     const closedMems = (memData.memories || []).filter((m: any) => m.source === 'outcome' && m.content?.includes('CLOSED'));
@@ -1072,6 +1090,31 @@ function VoicePageInner() {
   // Stop the GPS watch when leaving the page
   useEffect(() => () => stopGeoWatch(), []);
 
+  // Hold a screen wake lock while hands-free is on; release when it's off
+  useEffect(() => {
+    if (handsFree) acquireWakeLock();
+    else releaseWakeLock();
+    return () => releaseWakeLock();
+  }, [handsFree]);
+
+  // Backgrounding the tab kills the mic and auto-releases the wake lock.
+  // Stop cleanly on hide; re-arm everything when the rep comes back.
+  useEffect(() => {
+    const onVisibility = () => {
+      if (document.visibilityState === 'visible') {
+        if (handsFreeRef.current) {
+          acquireWakeLock();
+          queueHandsFreeRestart(600);
+        }
+        startGeoWatch();
+      } else {
+        stopVADListening();
+      }
+    };
+    document.addEventListener('visibilitychange', onVisibility);
+    return () => document.removeEventListener('visibilitychange', onVisibility);
+  }, []);
+
   // Geocode the active job once so arrival detection has a target
   useEffect(() => {
     jobGeoRef.current = null;
@@ -1170,9 +1213,12 @@ function VoicePageInner() {
       ? ' Suggest my run order: appointment times in the notes anchor the day, fill the gaps nearest-first. BUT if the geography makes a swap clearly smarter (like I am right next to a later appointment), say so and tell me to call and flip them — name which two and why.'
       : '';
     const pipelineVal = jobs.reduce((sum, j) => sum + (j.deal_value || 0), 0);
-    const fuNote = followUpCount > 0 ? ` ${followUpCount} follow-up${followUpCount > 1 ? 's' : ''} pending.` : '';
+    const fuDetails = followUpsRef.current
+      .map(n => `${(n.summary || 'follow-up').slice(0, 60)}${n.follow_up_date ? ` (due ${n.follow_up_date})` : ''}`)
+      .join('; ');
+    const fuNote = followUpCount > 0 ? ` ${followUpCount} follow-up${followUpCount > 1 ? 's' : ''} pending${fuDetails ? `: ${fuDetails}` : '.'}` : '';
     const pipeNote = pipelineVal > 0 ? ` Total pipeline today: $${pipelineVal.toLocaleString()}.` : '';
-    doSend(`Give me a quick morning brief.${fuNote}${pipeNote} I have ${jobs.length} active job${jobs.length !== 1 ? 's' : ''} today: ${jobList}.${routeNote} What should I know to start strong?`, sessionMessagesRef.current, doctrineRef.current, null, memoriesRef.current);
+    doSend(`Give me a quick morning brief.${fuNote}${pipeNote} I have ${jobs.length} active job${jobs.length !== 1 ? 's' : ''} today: ${jobList}.${routeNote} Work any due follow-ups into the plan. What should I know to start strong?`, sessionMessagesRef.current, doctrineRef.current, null, memoriesRef.current);
   };
 
   return (
