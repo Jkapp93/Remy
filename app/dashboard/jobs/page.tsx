@@ -317,6 +317,12 @@ export default function JobsPage() {
         .modal-overlay { position:fixed; inset:0; background:rgba(0,0,0,0.7); display:flex; align-items:center; justify-content:center; z-index:200; }
         .modal { background:#111820; border:1px solid rgba(255,255,255,0.1); border-radius:14px; padding:28px; max-width:400px; width:90%; }
         .action-btn { padding:7px 14px; border-radius:6px; font-family:'DM Sans',sans-serif; font-size:0.75rem; font-weight:500; cursor:pointer; border:1px solid; white-space:nowrap; }
+        .job-card-row { display:flex; justify-content:space-between; align-items:flex-start; gap:12px; }
+        .job-action-row { display:flex; gap:6px; align-items:center; flex-shrink:0; flex-wrap:wrap; justify-content:flex-end; }
+        @media (max-width: 640px) {
+          .job-card-row { flex-direction:column; }
+          .job-action-row { width:100%; justify-content:flex-start; border-top:1px solid rgba(255,255,255,0.06); padding-top:10px; margin-top:8px; }
+        }
         .type-select { width:100%; background:#0b0f14; border:1px solid rgba(255,255,255,0.08); border-radius:8px; padding:10px 14px; color:#e8edf2; font-family:'DM Sans',sans-serif; font-size:0.9rem; outline:none; margin-bottom:10px; cursor:pointer; }
         .legend-item { display:flex; align-items:center; gap:6px; font-size:0.72rem; color:#7a8fa4; }
         .legend-dot { width:10px; height:10px; border-radius:50%; flex-shrink:0; }
@@ -497,7 +503,7 @@ export default function JobsPage() {
               const jt = getJobType(job.job_type);
               return (
                 <div key={job.id} style={{ background:'#111820', border:`1px solid ${job.status === 'active' ? jt.color + '33' : 'rgba(255,255,255,0.08)'}`, borderRadius:'12px', padding:'16px 20px', cursor:'pointer', transition:'border-color 0.2s' }} onClick={() => openEdit(job)}>
-                  <div style={{ display:'flex', justifyContent:'space-between', alignItems:'flex-start', gap:'12px' }}>
+                  <div className="job-card-row">
                     <div style={{ flex:1 }}>
                       <div style={{ display:'flex', alignItems:'center', gap:'8px', marginBottom:'3px' }}>
                         <div style={{ width:'10px', height:'10px', borderRadius:'50%', background: jt.color, flexShrink:0 }} />
@@ -512,7 +518,7 @@ export default function JobsPage() {
                         {job.scheduled_at ? <div style={{ fontSize:'0.68rem', color:'#f1c40f', fontWeight:600 }}>🕐 {new Date(job.scheduled_at).toLocaleString('en-US', { weekday:'short', month:'short', day:'numeric', hour:'numeric', minute:'2-digit' })}</div> : null}
                       </div>
                     </div>
-                    <div className="job-action-row" style={{ display:'flex', gap:'6px', alignItems:'center', flexShrink:0, flexWrap:'wrap', justifyContent:'flex-end' }} onClick={e => e.stopPropagation()}>
+                    <div className="job-action-row" onClick={e => e.stopPropagation()}>
                       {job.status === 'active' && (
                         <Link href={'/dashboard/voice?jobId=' + job.id} className="action-btn" style={{ background:'rgba(240,122,46,0.1)', borderColor:'rgba(240,122,46,0.2)', color:'#f07a2e', textDecoration:'none', display:'inline-block' }}>Talk to Remy</Link>
                       )}
