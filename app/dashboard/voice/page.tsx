@@ -11,9 +11,12 @@ const JOB_TYPE_COLORS: Record<string, string> = {
   restoration: '#e67e22', other: '#7a8fa4',
 };
 const HANDS_FREE_PREF_KEY = 'remy_hands_free_mode';
-const MIN_TTS_CHARS = 18;
+const MIN_TTS_CHARS = 6;
 const MAX_TTS_CHARS = 240;
-const MIN_TTS_CHARS_HANDS_FREE = 1;
+const TTS_MAX_ATTEMPTS = 2;
+// Tiny silent clip played inside a user gesture to "bless" the shared audio
+// element — iOS then allows programmatic playback on that element afterwards.
+const SILENT_WAV = 'data:audio/wav;base64,UklGRiQAAABXQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YQAAAAA=';
 
 const DOCTRINE_TTL = 15 * 60 * 1000; // 15 minutes
 const SESSION_TTL = 12 * 60 * 60 * 1000; // 12 hours — don't restore yesterday's session
@@ -58,15 +61,19 @@ function VoicePageInner() {
   const [audioPlaybackBlocked, setAudioPlaybackBlocked] = useState(false);
   const [ttsStatus, setTtsStatus] = useState('');
 
-  // Refs for audio
+  // Refs for audio — one persistent <audio> element, reused for every clip,
+  // unlocked once inside a user gesture so iOS keeps allowing playback.
   const audioRef = useRef<HTMLAudioElement | null>(null);
+  const audioUnlockedRef = useRef(false);
+  const currentUrlRef = useRef<string | null>(null);
   const audioQueueRef = useRef<{ url: string; text: string }[]>([]);
   const speakingRef = useRef(false);
   const ttsPlayingRef = useRef(false);
   const audioPlaybackBlockedRef = useRef(false);
   const ttsRequestQueueRef = useRef<string[]>([]);
   const isGeneratingTtsRef = useRef(false);
-  const ttsBackoffMsRef = useRef(1000);
+  const listeningRef = useRef(false);
+  const micRestartTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Refs for legacy push-to-talk fallback
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
@@ -100,8 +107,7 @@ function VoicePageInner() {
     return isNativeApp;
   };
 
-  const isHandsFreeAudioFallback = () =>
-    handsFreeRef.current &&
+  const canUseDeviceSpeech = () =>
     !isMobileSpeechSynthesisBlocked() &&
     typeof window !== 'undefined' &&
     'speechSynthesis' in window;
@@ -138,14 +144,6 @@ function VoicePageInner() {
   };
 
   const accentColor = activeJob ? (JOB_TYPE_COLORS[activeJob.job_type] || '#f07a2e') : '#f07a2e';
-  const shouldHandsFreeByDefault = () => {
-    try {
-      const pref = localStorage.getItem(HANDS_FREE_PREF_KEY);
-      return pref === null ? true : pref === '1';
-    } catch {
-      return false;
-    }
-  };
 
   const parseOutcomeFromText = (text: string): 'won' | 'lost' | 'followup' | null => {
     const value = text.toLowerCase();
@@ -155,13 +153,25 @@ function VoicePageInner() {
     return null;
   };
 
-  const queueHandsFreeRestart = () => {
-    if (!shouldHandsFreeByDefault() || !handsFreeRef.current) return;
-    if (!loadingRef.current && !speakingRef.current) {
-      setTimeout(() => {
-        if (!loadingRef.current && !speakingRef.current && !listening) startVADListening();
-      }, 300);
-    }
+  // Strict turn-taking: the mic may only reopen once the ENTIRE speech
+  // pipeline is drained. An open SpeechRecognition session grabs the audio
+  // session on iOS and mutes/ducks playback — opening the mic while Remy is
+  // generating or speaking is what makes hands-free go silent.
+  const speechPipelineIdle = () =>
+    !loadingRef.current &&
+    !listeningRef.current &&
+    !ttsPlayingRef.current &&
+    !isGeneratingTtsRef.current &&
+    audioQueueRef.current.length === 0 &&
+    ttsRequestQueueRef.current.length === 0;
+
+  const queueHandsFreeRestart = (delay = 350) => {
+    if (!handsFreeRef.current) return;
+    if (micRestartTimerRef.current) clearTimeout(micRestartTimerRef.current);
+    micRestartTimerRef.current = setTimeout(() => {
+      micRestartTimerRef.current = null;
+      if (handsFreeRef.current && speechPipelineIdle()) startVADListening();
+    }, delay);
   };
 
   const speakWithDeviceFallback = async (text: string): Promise<boolean> => {
@@ -198,12 +208,8 @@ function VoicePageInner() {
 
       try {
         window.speechSynthesis.cancel();
-        setTtsStatus('Using device speaker fallback (provider under load).');
         window.speechSynthesis.speak(utterance);
-        timeoutId = setTimeout(() => {
-          setTtsStatus('Device speaker fallback did not start, trying fallback playback.');
-          finalize(false);
-        }, 2500);
+        timeoutId = setTimeout(() => finalize(false), 2500);
       } catch {
         finalize(false);
       }
@@ -276,6 +282,14 @@ function VoicePageInner() {
   useEffect(() => { handsFreeRef.current = handsFree; }, [handsFree]);
   useEffect(() => { loadingRef.current = loading; }, [loading]);
   useEffect(() => { speakingRef.current = speaking; }, [speaking]);
+  useEffect(() => { listeningRef.current = listening; }, [listening]);
+
+  // First tap anywhere unlocks audio playback for the session (iOS autoplay)
+  useEffect(() => {
+    const prime = () => primeAudio();
+    window.addEventListener('pointerdown', prime, { once: true });
+    return () => window.removeEventListener('pointerdown', prime);
+  }, []);
   useEffect(() => { doctrineRef.current = doctrine; }, [doctrine]);
   useEffect(() => { activeJobRef.current = activeJob; }, [activeJob]);
   useEffect(() => { memoriesRef.current = memories; }, [memories]);
@@ -401,58 +415,76 @@ function VoicePageInner() {
 
   // ─── TTS queue — plays audio in order, starts immediately when first chunk is ready ───
 
+  const handleAudioDone = () => {
+    if (currentUrlRef.current) { URL.revokeObjectURL(currentUrlRef.current); currentUrlRef.current = null; }
+    playNextInQueue();
+  };
+
+  const getAudioEl = () => {
+    if (!audioRef.current) {
+      const el = new Audio();
+      el.onended = handleAudioDone;
+      el.onerror = handleAudioDone;
+      audioRef.current = el;
+    }
+    return audioRef.current;
+  };
+
+  // Must be called from inside a user gesture (tap/click). Playing a silent
+  // clip blesses the shared element so later programmatic .play() calls work.
+  const primeAudio = () => {
+    if (audioUnlockedRef.current || ttsPlayingRef.current) return;
+    try {
+      const el = getAudioEl();
+      el.src = SILENT_WAV;
+      el.play().then(() => { audioUnlockedRef.current = true; }).catch(() => {});
+    } catch {}
+  };
+
   const playNextInQueue = () => {
     if (audioQueueRef.current.length === 0) {
       ttsPlayingRef.current = false;
       setSpeaking(false);
-      if (handsFreeRef.current && !loadingRef.current) {
-        setTimeout(() => startVADListening(), 400);
-      }
+      queueHandsFreeRestart();
       return;
     }
     ttsPlayingRef.current = true;
     setSpeaking(true);
     const item = audioQueueRef.current.shift()!;
-    const { url, text } = item;
-    const audio = new Audio(url);
-    audioRef.current = audio;
-    audio.onended = () => { URL.revokeObjectURL(url); audioRef.current = null; playNextInQueue(); };
-    audio.onerror = () => { URL.revokeObjectURL(url); audioRef.current = null; playNextInQueue(); };
-    audio.play().catch(async (err: any) => {
-      const shouldFallback = isHandsFreeAudioFallback();
-      if (shouldFallback) {
-        if (await speakWithDeviceFallback(text)) {
-          URL.revokeObjectURL(url);
-          audioRef.current = null;
-          ttsPlayingRef.current = false;
-          setSpeaking(false);
-          if (audioQueueRef.current.length > 0) setTimeout(() => playNextInQueue(), 40);
-          queueHandsFreeRestart();
-          return;
-        }
-      }
-      if (isNotAllowedPlaybackError(err) || shouldFallback) {
+    currentUrlRef.current = item.url;
+    const el = getAudioEl();
+    el.src = item.url;
+    el.play().catch((err: any) => {
+      if (isNotAllowedPlaybackError(err)) {
+        // Autoplay blocked — keep the clip queued and wait for a tap to unlock.
         audioQueueRef.current.unshift(item);
-        audioRef.current = null;
+        currentUrlRef.current = null;
         ttsPlayingRef.current = false;
         setSpeaking(false);
         audioPlaybackBlockedRef.current = true;
         setAudioPlaybackBlocked(true);
-        setTtsStatus('Audio playback is blocked by browser policy. Tap "Enable Audio" if needed.');
-        queueHandsFreeRestart();
+        setTtsStatus('Tap "Enable Audio" to hear Remy — the browser blocks sound until you interact.');
         return;
       }
-      URL.revokeObjectURL(url);
-      audioRef.current = null;
+      // Transient decode/abort error — skip this clip, keep the queue moving.
+      URL.revokeObjectURL(item.url);
+      currentUrlRef.current = null;
       playNextInQueue();
     });
   };
 
   const resumeAudioPlayback = () => {
-    if (!audioPlaybackBlockedRef.current) return;
+    // Runs inside a user gesture — playing here blesses the shared element.
+    const wasBlocked = audioPlaybackBlockedRef.current;
     audioPlaybackBlockedRef.current = false;
     setAudioPlaybackBlocked(false);
-    if (!ttsPlayingRef.current && audioQueueRef.current.length > 0) playNextInQueue();
+    if (wasBlocked) setTtsStatus('');
+    if (!ttsPlayingRef.current && audioQueueRef.current.length > 0) {
+      audioUnlockedRef.current = true;
+      playNextInQueue();
+    } else {
+      primeAudio();
+    }
   };
 
   const enqueueTTS = async (text: string) => {
@@ -465,134 +497,87 @@ function VoicePageInner() {
     if (isGeneratingTtsRef.current) return;
     isGeneratingTtsRef.current = true;
 
-    const processOne = async (text: string) => {
+    // Fetch one clip from /api/voice. Returns 'ok' (queued or handled),
+    // 'retry' (transient failure), or 'fatal' (don't retry this text).
+    const fetchClip = async (text: string): Promise<'ok' | 'retry' | 'fatal'> => {
       const savedVoice = typeof window !== 'undefined' ? localStorage.getItem('remy_voice') || undefined : undefined;
-      const shouldUseDeviceSpeech = isHandsFreeAudioFallback();
       const res = await fetch('/api/voice', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ text, voiceId: savedVoice }),
       });
 
-      if (!res.ok) {
-        if (res.status === 429 || res.status === 503) {
-          if (shouldUseDeviceSpeech) {
-              const fallbackOk = await speakWithDeviceFallback(text);
-              if (fallbackOk) {
-                if (audioPlaybackBlockedRef.current) {
-                  audioPlaybackBlockedRef.current = false;
-                  setAudioPlaybackBlocked(false);
-                }
-                setTtsStatus('');
-                ttsBackoffMsRef.current = 1000;
-                return true;
-              }
-            }
-          const retryIn = ttsBackoffMsRef.current;
-          setTtsStatus('Hands-free TTS is delayed by provider load. Retrying…');
-          ttsBackoffMsRef.current = Math.min(retryIn * 2, 12000);
-          if (retryIn >= 8000) {
-            const fallbackOk = await speakWithDeviceFallback(text);
-            if (fallbackOk) {
-              setTtsStatus('');
-              ttsBackoffMsRef.current = 1000;
-              return true;
-            }
-          }
-          await new Promise(r => setTimeout(r, retryIn));
-          return false; // retry same text
-        }
-        if (res.status === 402) {
-          const plan = res.headers.get('X-Remy-Voice-Plan') || 'free';
-          const allowed = getUsageHeaderNumber(res.headers.get('X-Remy-Voice-Allowed'));
-          const used = getUsageHeaderNumber(res.headers.get('X-Remy-Voice-Used'));
-          const remaining = getUsageHeaderNumber(res.headers.get('X-Remy-Voice-Remaining-Included'));
-          const usedText = used !== null ? used : '?';
-          const allowedText = allowed !== null ? allowed : '?';
-          const remainingText = remaining !== null ? remaining : '?';
-          setTtsStatus(`Voice limit reached for ${plan}: ${usedText}/${allowedText} used, ${remainingText} included left. Upgrade to keep speaking right away.`);
-          return true;
-        }
-        if (res.status >= 500) {
-          const fallbackOk = await speakWithDeviceFallback(text);
-          if (fallbackOk) {
-            if (audioPlaybackBlockedRef.current) {
-              audioPlaybackBlockedRef.current = false;
-              setAudioPlaybackBlocked(false);
-            }
-            setTtsStatus('');
-            ttsBackoffMsRef.current = 1000;
-            return true;
-          }
-
-          const retryIn = ttsBackoffMsRef.current;
-          setTtsStatus(`Remy voice service error (${res.status}). Retrying in ~${Math.max(1, Math.round(retryIn / 1000))}s.`);
-          ttsBackoffMsRef.current = Math.min(retryIn * 2, 12000);
-          await new Promise(r => setTimeout(r, retryIn));
-          return false; // retry same text
-        }
-        return true;
+      if (res.ok) {
+        const blob = await res.blob();
+        updateTtsUsageBanner(res);
+        if (!blob.size) return 'ok';
+        const url = URL.createObjectURL(blob);
+        audioQueueRef.current.push({ url, text });
+        if (!ttsPlayingRef.current) playNextInQueue();
+        return 'ok';
       }
 
-      const blob = await res.blob();
-      updateTtsUsageBanner(res);
-      if (!blob.size) return true;
-      const url = URL.createObjectURL(blob);
-      audioQueueRef.current.push({ url, text });
-      if (!ttsPlayingRef.current) playNextInQueue();
-      setTtsStatus('');
-      ttsBackoffMsRef.current = 1000;
-      return true;
+      if (res.status === 402) {
+        const plan = res.headers.get('X-Remy-Voice-Plan') || 'free';
+        const allowed = getUsageHeaderNumber(res.headers.get('X-Remy-Voice-Allowed'));
+        const used = getUsageHeaderNumber(res.headers.get('X-Remy-Voice-Used'));
+        const usedText = used !== null ? used : '?';
+        const allowedText = allowed !== null ? allowed : '?';
+        setTtsStatus(`Voice limit reached for ${plan}: ${usedText}/${allowedText} used. Upgrade to keep hearing Remy.`);
+        return 'fatal';
+      }
+
+      return res.status === 429 || res.status === 503 || res.status >= 500 ? 'retry' : 'fatal';
     };
 
     try {
       while (ttsRequestQueueRef.current.length > 0) {
         const text = ttsRequestQueueRef.current.shift()!;
-        let shouldContinue = true;
-        try {
-          shouldContinue = await processOne(text);
-        } catch {
-          const fallbackOk = await speakWithDeviceFallback(text);
-          if (fallbackOk) {
-            if (audioPlaybackBlockedRef.current) {
-              audioPlaybackBlockedRef.current = false;
-              setAudioPlaybackBlocked(false);
-            }
-            shouldContinue = true;
+        let done = false;
+        for (let attempt = 1; attempt <= TTS_MAX_ATTEMPTS && !done; attempt++) {
+          let result: 'ok' | 'retry' | 'fatal' = 'retry';
+          try { result = await fetchClip(text); } catch { result = 'retry'; }
+          if (result === 'ok' || result === 'fatal') {
+            done = true;
+          } else if (attempt < TTS_MAX_ATTEMPTS) {
+            await new Promise(r => setTimeout(r, 700 * attempt));
           } else {
-            setTtsStatus('Voice request failed. retrying this phrase.');
-            ttsBackoffMsRef.current = Math.min(ttsBackoffMsRef.current * 2, 12000);
-            shouldContinue = false;
+            // Out of retries — speak with the device voice rather than going
+            // silent, but only if nothing else is already playing.
+            if (handsFreeRef.current && canUseDeviceSpeech() && !ttsPlayingRef.current) {
+              await speakWithDeviceFallback(text);
+            } else {
+              setTtsStatus('Voice service hiccup — skipped a line. Next reply will speak normally.');
+            }
+            done = true;
           }
-        }
-        if (!shouldContinue) {
-          ttsRequestQueueRef.current.unshift(text);
-          continue;
         }
       }
     } finally {
       isGeneratingTtsRef.current = false;
+      queueHandsFreeRestart();
     }
   };
 
-  const enqueueSpeechText = (text: string) => {
+  const enqueueSpeechText = (text: string): number => {
     const trimmed = text.replace(/\s+/g, ' ').trim();
-    const minChars = isHandsFreeAudioFallback() ? MIN_TTS_CHARS_HANDS_FREE : MIN_TTS_CHARS;
-    if (!trimmed || trimmed.length < minChars) return;
+    if (!trimmed || trimmed.length < MIN_TTS_CHARS) return 0;
     if (trimmed.length <= MAX_TTS_CHARS) {
       enqueueTTS(trimmed);
-      return;
+      return 1;
     }
+    let sent = 0;
     let remaining = trimmed;
     while (remaining.length > MAX_TTS_CHARS) {
       const chunk = remaining.slice(0, MAX_TTS_CHARS);
       let splitAt = chunk.lastIndexOf(' ');
-      if (splitAt < minChars) splitAt = MAX_TTS_CHARS;
+      if (splitAt < MIN_TTS_CHARS) splitAt = MAX_TTS_CHARS;
       const head = remaining.slice(0, splitAt).trim();
-      if (head) enqueueTTS(head);
+      if (head) { enqueueTTS(head); sent++; }
       remaining = remaining.slice(splitAt).trim();
     }
-    if (remaining.length >= minChars) enqueueTTS(remaining);
+    if (remaining.length >= MIN_TTS_CHARS) { enqueueTTS(remaining); sent++; }
+    return sent;
   };
 
   useEffect(() => {
@@ -610,11 +595,14 @@ function VoicePageInner() {
   }, [audioPlaybackBlocked]);
 
   const stopSpeaking = () => {
-    if (audioRef.current) { audioRef.current.pause(); audioRef.current = null; }
-    if ('speechSynthesis' in window) { window.speechSynthesis.cancel(); }
+    const el = audioRef.current;
+    if (el) { el.pause(); el.removeAttribute('src'); }
+    if (currentUrlRef.current) { URL.revokeObjectURL(currentUrlRef.current); currentUrlRef.current = null; }
+    audioQueueRef.current.forEach(item => URL.revokeObjectURL(item.url));
     audioQueueRef.current = [];
-    ttsPlayingRef.current = false;
     ttsRequestQueueRef.current = [];
+    if ('speechSynthesis' in window) { window.speechSynthesis.cancel(); }
+    ttsPlayingRef.current = false;
     setSpeaking(false);
   };
 
@@ -655,6 +643,7 @@ function VoicePageInner() {
       const decoder = new TextDecoder();
       let fullText = '';
       let sentenceBuffer = '';
+      let speechChunks = 0;
 
       while (true) {
         const { done, value } = await reader.read();
@@ -674,14 +663,16 @@ function VoicePageInner() {
         const parts = sentenceBuffer.split(/(?<=[.!?])\s+/);
         if (parts.length > 1) {
           for (let i = 0; i < parts.length - 1; i++) {
-            enqueueSpeechText(parts[i]);
+            speechChunks += enqueueSpeechText(parts[i]);
           }
           sentenceBuffer = parts[parts.length - 1];
         }
       }
 
-      // Flush any remaining text
-      enqueueSpeechText(sentenceBuffer);
+      // Flush any remaining text; if the whole reply was too short to pass
+      // the min-chars filter, speak it whole so short answers aren't silent.
+      speechChunks += enqueueSpeechText(sentenceBuffer);
+      if (speechChunks === 0 && fullText.trim()) enqueueTTS(fullText.trim().slice(0, MAX_TTS_CHARS));
 
       const finalMessages: Message[] = [...currentMessages, userMsg, { role: 'assistant', content: fullText }];
       setMessages(finalMessages);
@@ -751,6 +742,7 @@ function VoicePageInner() {
       const decoder = new TextDecoder();
       let fullText = '';
       let sentenceBuffer = '';
+      let speechChunks = 0;
 
       while (true) {
         const { done, value } = await reader.read();
@@ -768,17 +760,14 @@ function VoicePageInner() {
         const parts = sentenceBuffer.split(/(?<=[.!?])\s+/);
         if (parts.length > 1) {
           for (let i = 0; i < parts.length - 1; i++) {
-            enqueueSpeechText(parts[i]);
+            speechChunks += enqueueSpeechText(parts[i]);
           }
           sentenceBuffer = parts[parts.length - 1];
         }
       }
 
-      enqueueSpeechText(sentenceBuffer);
-
-      if (ttsStatus) {
-        setTtsStatus('');
-      }
+      speechChunks += enqueueSpeechText(sentenceBuffer);
+      if (speechChunks === 0 && fullText.trim()) enqueueTTS(fullText.trim().slice(0, MAX_TTS_CHARS));
 
       const userDisplayMsg: Message = { role: 'user', content: '📷 Photo sent for analysis' };
       const finalMessages: Message[] = [...currentMessages, userDisplayMsg, { role: 'assistant', content: fullText }];
@@ -821,12 +810,17 @@ function VoicePageInner() {
   // ─── Hands-free VAD via Web Speech API ───
 
   const startVADListening = () => {
-    if (loadingRef.current || listening) return;
+    // Never open the mic while Remy is loading, talking, or about to talk —
+    // an active recognition session mutes media playback on iOS.
+    if (loadingRef.current || listeningRef.current || recognitionRef.current) return;
+    if (ttsPlayingRef.current || isGeneratingTtsRef.current || audioQueueRef.current.length > 0) return;
+    if (micRestartTimerRef.current) { clearTimeout(micRestartTimerRef.current); micRestartTimerRef.current = null; }
     const SR = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
     if (!SR) { startListening(); return; }
     try {
       const recognition = new SR();
       recognitionRef.current = recognition;
+      listeningRef.current = true;
       recognition.continuous = false;
       recognition.interimResults = true;
       recognition.lang = 'en-US';
@@ -842,11 +836,13 @@ function VoicePageInner() {
         const last = e.results[e.results.length - 1];
         if (!last.isFinal) return;
         recognitionRef.current = null;
+        listeningRef.current = false;
         setListening(false);
         setInput('');
         handleSpokenText(allTranscript);
       };
       recognition.onerror = (e: any) => {
+        listeningRef.current = false;
         setListening(false);
         setInput('');
         recognitionRef.current = null;
@@ -854,9 +850,10 @@ function VoicePageInner() {
           setHandsFreeWithPreference(false);
           return;
         }
-        queueHandsFreeRestart();
+        queueHandsFreeRestart(500);
       };
       recognition.onend = () => {
+        listeningRef.current = false;
         setListening(false);
         setInput('');
         recognitionRef.current = null;
@@ -864,21 +861,38 @@ function VoicePageInner() {
       };
       recognition.start();
       setListening(true);
-    } catch { startListening(); }
+    } catch {
+      listeningRef.current = false;
+      recognitionRef.current = null;
+      startListening();
+    }
   };
 
   const stopVADListening = () => {
+    if (micRestartTimerRef.current) { clearTimeout(micRestartTimerRef.current); micRestartTimerRef.current = null; }
     recognitionRef.current?.stop();
     recognitionRef.current = null;
+    listeningRef.current = false;
     setListening(false);
     setInput('');
+  };
+
+  // Manual mic tap = barge-in: cut Remy off and listen right away.
+  const interruptAndListen = () => {
+    primeAudio(); // user gesture — keep audio unlocked for her reply
+    if (speakingRef.current || ttsPlayingRef.current) stopSpeaking();
+    startVADListening();
   };
 
   const toggleHandsFree = () => {
     const next = !handsFree;
     setHandsFreeWithPreference(next);
-    if (next && !loading && !speaking) setTimeout(() => startVADListening(), 200);
-    else if (!next) stopVADListening();
+    if (next) {
+      primeAudio(); // user gesture — unlock audio for the whole session
+      queueHandsFreeRestart(150);
+    } else {
+      stopVADListening();
+    }
   };
 
   // ─── Push-to-talk fallback (MediaRecorder + Deepgram) ───
@@ -1155,7 +1169,7 @@ function VoicePageInner() {
         {handsFree && (
           <button
             className={`mic-btn${listening ? ' pulsing ripple' : ''}`}
-            onClick={listening ? stopVADListening : startVADListening}
+            onClick={listening ? stopVADListening : interruptAndListen}
             style={{ position: 'relative', background: listening ? accentColor : `${accentColor}08`, border: `1.5px solid ${listening ? accentColor : accentColor + '22'}`, color: listening ? '#fff' : `${accentColor}66` }}
           >
             {listening ? '●' : '◎'}
