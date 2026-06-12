@@ -2,6 +2,9 @@ import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { resolveCompanyId } from '@/lib/apiAuth';
 
+// Same static-freeze risk as timeline: error before dynamic API + 200 catch.
+export const dynamic = 'force-dynamic';
+
 // Weekly rep performance stats. Replaces Leaderboard.tsx's direct
 // anon-key Supabase reads (which were also unscoped on job_notes —
 // they counted every company's notes).

@@ -1,4 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { auth } from '@clerk/nextjs/server';
+
+export const dynamic = 'force-dynamic';
 
 // Geo proxy for the mobile app — keeps the Maps key server-side.
 // Actions: geocode (address) | nearby (lat, lng, type)
@@ -8,6 +11,14 @@ export async function GET(req: NextRequest) {
   const { searchParams } = new URL(req.url);
   const action = searchParams.get('action');
   try {
+    // Authed callers only — this proxies the paid Google Maps APIs.
+    const { userId } = await auth();
+    const bearer = req.headers.get('authorization')?.replace(/^Bearer\s+/i, '');
+    const isMobile = !!bearer && !!process.env.MOBILE_API_TOKEN && bearer === process.env.MOBILE_API_TOKEN;
+    if (!userId && !isMobile) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    }
+
     if (action === 'geocode') {
       const address = searchParams.get('address') || '';
       if (!address || address.length > 300) {

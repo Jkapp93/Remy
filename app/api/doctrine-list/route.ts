@@ -2,6 +2,9 @@ import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { resolveCompanyId } from '@/lib/apiAuth';
 
+// Same static-freeze risk as timeline: error before dynamic API + 200 catch.
+export const dynamic = 'force-dynamic';
+
 export async function GET(req: NextRequest) {
   try {
     const supabase = createClient(

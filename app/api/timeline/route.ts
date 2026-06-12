@@ -2,6 +2,11 @@ import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { resolveCompanyId } from '@/lib/apiAuth';
 
+// Build-time prerender once froze this route as a static 200 with empty
+// events (createClient threw before any dynamic API ran, the catch swallowed
+// it). force-dynamic guarantees it always executes per-request.
+export const dynamic = 'force-dynamic';
+
 // Timeline events (notes + conversations) for a job. Replaces the
 // dashboard's direct anon-key Supabase reads.
 export async function GET(req: NextRequest) {
