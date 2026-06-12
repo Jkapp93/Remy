@@ -519,8 +519,10 @@ function VoicePageInner() {
     el.src = item.url;
     el.play().catch((err: any) => {
       if (isNotAllowedPlaybackError(err)) {
-        // Autoplay blocked — keep the clip queued and wait for a tap to unlock.
-        URL.revokeObjectURL(item.url);
+        // Autoplay blocked — KEEP the clip queued (don't revoke it!) so the
+        // "Enable Audio" tap can replay it via resumeAudioPlayback. Revoking
+        // here eats Remy's first reply and the unlock tap plays nothing.
+        audioQueueRef.current.unshift(item);
         currentUrlRef.current = null;
         ttsPlayingRef.current = false;
         setSpeaking(false);
@@ -577,8 +579,9 @@ function VoicePageInner() {
       if (res.ok) {
         const contentType = res.headers.get('content-type')?.toLowerCase() || '';
         if (!contentType.includes('audio') && !contentType.includes('octet-stream')) {
-          const detail = await res.text();
-          if (await speakWithFallback(`Tts response wasn't audio. ${detail}`.slice(0, 140), 'non-audio response')) {
+          // Never speak the raw response body aloud — it's JSON/HTML garbage.
+          // Speak the rep's actual line with the device voice instead.
+          if (await speakWithFallback(text, 'non-audio response')) {
             return 'ok';
           }
           setTtsStatus('Voice response came back as non-audio. Next reply should still proceed.');
