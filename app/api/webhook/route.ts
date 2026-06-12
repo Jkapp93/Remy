@@ -46,6 +46,25 @@ export async function POST(req: NextRequest) {
 
     const body = await req.json();
 
+    // Every read in the app is company-scoped, so a job without company_id
+    // would be an invisible orphan. CRMs must say which company it belongs to
+    // (payload field or ?companyId= on the webhook URL).
+    const companyId = body.company_id || body.companyId || req.nextUrl.searchParams.get('companyId');
+    if (!companyId) {
+      return NextResponse.json(
+        { error: 'company_id required — include it in the payload or as ?companyId= on the webhook URL' },
+        { status: 400, headers: corsHeadersFor(req) }
+      );
+    }
+    const { data: company } = await supabase
+      .from('companies')
+      .select('id')
+      .eq('id', companyId)
+      .single();
+    if (!company) {
+      return NextResponse.json({ error: 'Unknown company_id' }, { status: 400, headers: corsHeadersFor(req) });
+    }
+
     // Normalize job data from any CRM format
     const job = {
       customer_name: body.customer_name || body.customerName || body.contact_name || body.name || 'Unknown',
@@ -54,18 +73,21 @@ export async function POST(req: NextRequest) {
       status: 'active',
       crm_id: body.id || body.job_id || body.jobId || null,
       crm_source: body.source || 'webhook',
+      company_id: companyId,
     };
 
-    // Check if job already exists by crm_id
+    // Match existing jobs by crm_id WITHIN the company — CRM ids are not
+    // globally unique, two tenants on the same CRM must never collide.
     if (job.crm_id) {
       const { data: existing } = await supabase
         .from('jobs')
         .select('id')
         .eq('crm_id', job.crm_id)
+        .eq('company_id', companyId)
         .single();
 
       if (existing) {
-        await supabase.from('jobs').update(job).eq('crm_id', job.crm_id);
+        await supabase.from('jobs').update(job).eq('id', existing.id);
         return NextResponse.json({ success: true, action: 'updated' }, { headers: corsHeadersFor(req) });
       }
     }
