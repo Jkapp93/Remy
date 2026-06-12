@@ -1144,29 +1144,35 @@ function VoicePageInner() {
   };
 
   const briefDay = async () => {
-    // With live GPS, order the day's jobs nearest-first so the brief doubles
-    // as a route plan. Geocode failures just fall back to the original order.
-    let ordered = jobs;
-    let routeNote = '';
+    // Jobs are usually scheduled by time (which lives in free-text notes),
+    // so never hard-sort by distance. Instead hand Remy distance per job AND
+    // the note snippets, and let her order the day: appointments first,
+    // nearest-first to fill the gaps.
     const pos = geoRef.current;
+    const distances = new Map<string, number>();
     if (pos && jobs.length > 1 && jobs.some(j => j.address)) {
       try {
-        const withDist = await Promise.all(jobs.slice(0, 6).map(async j => {
-          if (!j.address) return { j, d: Number.MAX_SAFE_INTEGER };
+        await Promise.all(jobs.slice(0, 6).map(async j => {
+          if (!j.address) return;
           try {
             const r = await fetch(`/api/geo?action=geocode&address=${encodeURIComponent(j.address)}`).then(res => res.json());
-            return { j, d: r.location?.lat ? metersBetween(pos, r.location) : Number.MAX_SAFE_INTEGER };
-          } catch { return { j, d: Number.MAX_SAFE_INTEGER }; }
+            if (r.location?.lat) distances.set(j.id, metersBetween(pos, r.location) / 1609.34);
+          } catch {}
         }));
-        ordered = withDist.sort((a, b) => a.d - b.d).map(x => x.j);
-        routeNote = ' (listed nearest-first from my current location — treat it as my route order)';
       } catch {}
     }
-    const jobList = ordered.slice(0, 5).map(j => `${j.customer_name}${j.address ? ` at ${j.address}` : ''}${j.deal_value ? ` ($${j.deal_value.toLocaleString()})` : ''}`).join(', ');
+    const jobList = jobs.slice(0, 5).map(j => {
+      const mi = distances.get(j.id);
+      const noteSnip = j.notes ? ` — notes: "${j.notes.slice(0, 80)}"` : '';
+      return `${j.customer_name}${j.address ? ` at ${j.address}` : ''}${mi !== undefined ? ` (~${mi < 10 ? mi.toFixed(1) : Math.round(mi)} mi from me)` : ''}${j.deal_value ? ` ($${j.deal_value.toLocaleString()})` : ''}${noteSnip}`;
+    }).join('; ');
+    const routeNote = distances.size > 0
+      ? ' Suggest my run order: any appointment times in the notes come first at their times, then fill the gaps nearest-first.'
+      : '';
     const pipelineVal = jobs.reduce((sum, j) => sum + (j.deal_value || 0), 0);
     const fuNote = followUpCount > 0 ? ` ${followUpCount} follow-up${followUpCount > 1 ? 's' : ''} pending.` : '';
     const pipeNote = pipelineVal > 0 ? ` Total pipeline today: $${pipelineVal.toLocaleString()}.` : '';
-    doSend(`Give me a quick morning brief.${fuNote}${pipeNote} I have ${jobs.length} active job${jobs.length !== 1 ? 's' : ''} today${routeNote}: ${jobList}. What should I know to start strong?`, sessionMessagesRef.current, doctrineRef.current, null, memoriesRef.current);
+    doSend(`Give me a quick morning brief.${fuNote}${pipeNote} I have ${jobs.length} active job${jobs.length !== 1 ? 's' : ''} today: ${jobList}.${routeNote} What should I know to start strong?`, sessionMessagesRef.current, doctrineRef.current, null, memoriesRef.current);
   };
 
   return (
