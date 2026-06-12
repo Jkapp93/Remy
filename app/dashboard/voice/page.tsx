@@ -10,6 +10,10 @@ const JOB_TYPE_COLORS: Record<string, string> = {
   painting: '#9b59b6', plumbing: '#e74c3c', solar: '#f1c40f',
   restoration: '#e67e22', other: '#7a8fa4',
 };
+const HANDS_FREE_PREF_KEY = 'remy_hands_free_mode';
+const MIN_TTS_CHARS = 18;
+const MAX_TTS_CHARS = 240;
+const MIN_TTS_CHARS_HANDS_FREE = 1;
 
 const DOCTRINE_TTL = 15 * 60 * 1000; // 15 minutes
 const SESSION_TTL = 12 * 60 * 60 * 1000; // 12 hours — don't restore yesterday's session
@@ -51,11 +55,18 @@ function VoicePageInner() {
   const [closeStreak, setCloseStreak] = useState(0);
   const [followUpCount, setFollowUpCount] = useState(0);
   const [showOutcomeBtns, setShowOutcomeBtns] = useState(false);
+  const [audioPlaybackBlocked, setAudioPlaybackBlocked] = useState(false);
+  const [ttsStatus, setTtsStatus] = useState('');
 
   // Refs for audio
   const audioRef = useRef<HTMLAudioElement | null>(null);
-  const audioQueueRef = useRef<string[]>([]);
+  const audioQueueRef = useRef<{ url: string; text: string }[]>([]);
+  const speakingRef = useRef(false);
   const ttsPlayingRef = useRef(false);
+  const audioPlaybackBlockedRef = useRef(false);
+  const ttsRequestQueueRef = useRef<string[]>([]);
+  const isGeneratingTtsRef = useRef(false);
+  const ttsBackoffMsRef = useRef(1000);
 
   // Refs for legacy push-to-talk fallback
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
@@ -75,8 +86,165 @@ function VoicePageInner() {
   const memoriesRef = useRef<{content: string}[]>([]);
   const geoRef = useRef<{lat: number; lng: number} | null>(null);
   const photoInputRef = useRef<HTMLInputElement | null>(null);
+  const setHandsFreeWithPreference = (next: boolean) => {
+    setHandsFree(next);
+    handsFreeRef.current = next;
+    try {
+      localStorage.setItem(HANDS_FREE_PREF_KEY, next ? '1' : '0');
+    } catch {}
+  };
+  const isMobileSpeechSynthesisBlocked = () => {
+    if (typeof navigator === 'undefined') return false;
+    const ua = navigator.userAgent || '';
+    const isNativeApp = /EdgiOS|Instagram|FBAN|FBAV/i.test(ua);
+    return isNativeApp;
+  };
+
+  const isHandsFreeAudioFallback = () =>
+    handsFreeRef.current &&
+    !isMobileSpeechSynthesisBlocked() &&
+    typeof window !== 'undefined' &&
+    'speechSynthesis' in window;
+
+  const isNotAllowedPlaybackError = (err: unknown) => {
+    return !!(
+      err &&
+      typeof err === 'object' &&
+      (('name' in err && (err as { name?: unknown }).name === 'NotAllowedError') ||
+        ('message' in err && typeof (err as { message?: unknown }).message === 'string' && (err as { message?: string }).message?.toLowerCase().includes('not allowed')))
+    );
+  };
+
+  const ensureSpeechSynthesisReady = async () => {
+    if (typeof window === 'undefined' || !('speechSynthesis' in window)) return false;
+    if (window.speechSynthesis.getVoices().length > 0) return true;
+
+    return await new Promise<boolean>((resolve) => {
+      let done = false;
+      const onVoices = () => {
+        if (done) return;
+        done = true;
+        window.speechSynthesis.removeEventListener('voiceschanged', onVoices as any);
+        resolve(window.speechSynthesis.getVoices().length > 0);
+      };
+      setTimeout(() => {
+        if (done) return;
+        done = true;
+        window.speechSynthesis.removeEventListener('voiceschanged', onVoices as any);
+        resolve(false);
+      }, 900);
+      window.speechSynthesis.addEventListener('voiceschanged', onVoices as any);
+    });
+  };
 
   const accentColor = activeJob ? (JOB_TYPE_COLORS[activeJob.job_type] || '#f07a2e') : '#f07a2e';
+  const shouldHandsFreeByDefault = () => {
+    try {
+      const pref = localStorage.getItem(HANDS_FREE_PREF_KEY);
+      return pref === null ? true : pref === '1';
+    } catch {
+      return false;
+    }
+  };
+
+  const parseOutcomeFromText = (text: string): 'won' | 'lost' | 'followup' | null => {
+    const value = text.toLowerCase();
+    if (/(\bwin\b|\bwon\b|\bsigned\b|\bbooked\b|\bclosed\b|\bwe\s+got\s+it\b)/.test(value)) return 'won';
+    if (/(\bno\s+sale\b|\blost\b|\bnot\s+interested\b|\bnot\s+moving\b|\bdecline\b|\bnot\s+going\s+to\s+buy\b|\bgave\s+up\b)/.test(value)) return 'lost';
+    if (/(\bfollow\s*up\b|\bcall\s+back\b|\bmaybe\s+later\b|\blet\s+me\s+think\b|\bconsider\s+it\b|\bcome\s+back\s+later\b)/.test(value)) return 'followup';
+    return null;
+  };
+
+  const queueHandsFreeRestart = () => {
+    if (!shouldHandsFreeByDefault() || !handsFreeRef.current) return;
+    if (!loadingRef.current && !speakingRef.current) {
+      setTimeout(() => {
+        if (!loadingRef.current && !speakingRef.current && !listening) startVADListening();
+      }, 300);
+    }
+  };
+
+  const speakWithDeviceFallback = async (text: string): Promise<boolean> => {
+    if (typeof window === 'undefined' || !('speechSynthesis' in window)) return false;
+    const ready = await ensureSpeechSynthesisReady();
+    if (!ready) return false;
+    return new Promise<boolean>((resolve) => {
+      const utterance = new SpeechSynthesisUtterance(text);
+      let done = false;
+      let timeoutId: ReturnType<typeof setTimeout> | null = null;
+
+      const finalize = (value: boolean) => {
+        if (done) return;
+        done = true;
+        if (timeoutId) {
+          clearTimeout(timeoutId);
+          timeoutId = null;
+        }
+        ttsPlayingRef.current = false;
+        setSpeaking(false);
+        resolve(value);
+      };
+
+      utterance.lang = 'en-US';
+      utterance.rate = 1;
+      utterance.pitch = 1;
+      utterance.volume = 1;
+      utterance.onend = () => finalize(true);
+      utterance.onerror = () => finalize(false);
+      utterance.onstart = () => {
+        ttsPlayingRef.current = true;
+        setSpeaking(true);
+      };
+
+      try {
+        window.speechSynthesis.cancel();
+        setTtsStatus('Using device speaker fallback (provider under load).');
+        window.speechSynthesis.speak(utterance);
+        timeoutId = setTimeout(() => {
+          setTtsStatus('Device speaker fallback did not start, trying fallback playback.');
+          finalize(false);
+        }, 2500);
+      } catch {
+        finalize(false);
+      }
+    });
+  };
+
+  const getUsageHeaderNumber = (value: string | null): number | null => {
+    if (!value) return null;
+    const parsed = Number(value);
+    return Number.isFinite(parsed) ? parsed : null;
+  };
+
+  const updateTtsUsageBanner = (res: Response) => {
+    const plan = res.headers.get('X-Remy-Voice-Plan');
+    const allowed = getUsageHeaderNumber(res.headers.get('X-Remy-Voice-Allowed'));
+    const used = getUsageHeaderNumber(res.headers.get('X-Remy-Voice-Used'));
+    const overage = getUsageHeaderNumber(res.headers.get('X-Remy-Voice-Overage'));
+    const remaining = getUsageHeaderNumber(res.headers.get('X-Remy-Voice-Remaining-Included'));
+    if (plan && allowed !== null && used !== null && remaining !== null) {
+      if (overage && overage > 0) {
+        setTtsStatus(`Voice usage: ${plan} plan, ${used}/${allowed} included + ${overage} overage this month.`);
+        return;
+      }
+      if (remaining <= 1000) {
+        setTtsStatus(`Voice usage: ${used}/${allowed} included this month (${plan} plan).`);
+        return;
+      }
+      if (ttsStatus && ttsStatus.startsWith('Voice usage:') && remaining > 1000) {
+        setTtsStatus('');
+      }
+    }
+  };
+
+  const handleSpokenText = (text: string) => {
+    const quickOutcome = parseOutcomeFromText(text);
+    if (quickOutcome && handsFreeRef.current && activeJobRef.current) {
+      logOutcome(quickOutcome);
+      return;
+    }
+    doSend(text, sessionMessagesRef.current, doctrineRef.current, activeJobRef.current, memoriesRef.current);
+  };
 
   const bustDoctrine = async () => {
     if (!user) return;
@@ -89,6 +257,14 @@ function VoicePageInner() {
 
   useEffect(() => {
     if (!isLoaded || !user) return;
+    try {
+      const pref = localStorage.getItem(HANDS_FREE_PREF_KEY);
+      const prefHandsFree = pref === null ? true : pref === '1';
+      if (pref === null) localStorage.setItem(HANDS_FREE_PREF_KEY, '1');
+      setHandsFreeWithPreference(prefHandsFree);
+    } catch {
+      setHandsFreeWithPreference(false);
+    }
     initPage();
   }, [isLoaded, user, profile]);
 
@@ -99,6 +275,7 @@ function VoicePageInner() {
   // Keep refs in sync
   useEffect(() => { handsFreeRef.current = handsFree; }, [handsFree]);
   useEffect(() => { loadingRef.current = loading; }, [loading]);
+  useEffect(() => { speakingRef.current = speaking; }, [speaking]);
   useEffect(() => { doctrineRef.current = doctrine; }, [doctrine]);
   useEffect(() => { activeJobRef.current = activeJob; }, [activeJob]);
   useEffect(() => { memoriesRef.current = memories; }, [memories]);
@@ -158,6 +335,7 @@ function VoicePageInner() {
           if (savedJob) setActiveJob(savedJob);
           setMessages(saved);
           sessionMessagesRef.current = saved;
+          queueHandsFreeRestart();
           return;
         }
       }
@@ -178,7 +356,8 @@ function VoicePageInner() {
               setActiveJob(foundJob);
               activeJobRef.current = foundJob;
               setShowOutcomeBtns(true);
-              setMessages([{ role: 'assistant', content: `You're back. How'd it go with ${lastJobName}? Tap an outcome below or tell me what happened.` }]);
+              setMessages([{ role: 'assistant', content: `You're back. How'd it go with ${lastJobName}? Say won, lost, or follow-up. Otherwise tell me what happened.` }]);
+              queueHandsFreeRestart();
               return;
             }
           }
@@ -191,7 +370,19 @@ function VoicePageInner() {
       const found = jobData.find((j: Job) => j.id === jobId);
       if (found) {
         setActiveJob(found);
-        setMessages([{ role: 'assistant', content: `${found.customer_name} loaded. Tap Brief Me when you are ready.` }]);
+        setShowOutcomeBtns(false);
+        setMessages([{ role: 'assistant', content: `${found.customer_name} loaded. Starting quick brief and staying in ride mode.` }]);
+        sessionMessagesRef.current = [];
+        setTimeout(() => {
+          doSend(
+            `Brief me fast. Pulling up to ${found.customer_name}${found.address ? ` at ${found.address}` : ''}${found.notes ? `. Notes: ${found.notes}` : ''}.`,
+            [],
+            doctrine,
+            found,
+            memData.memories || []
+          );
+        }, 120);
+        queueHandsFreeRestart();
         return;
       }
     }
@@ -200,9 +391,11 @@ function VoicePageInner() {
     if (jobData.length > 0) {
       const fuNote = pendingFollowUps.length > 0 ? ` ${pendingFollowUps.length} follow-up${pendingFollowUps.length > 1 ? 's' : ''} pending too.` : '';
       setMessages([{ role: 'assistant', content: `Hey.${streakNote} ${jobData.length} active job${jobData.length > 1 ? 's' : ''} today.${fuNote} Select a job or tap Brief My Day.` }]);
+      queueHandsFreeRestart();
     } else {
       const fuNote = pendingFollowUps.length > 0 ? ` But ${pendingFollowUps.length} follow-up${pendingFollowUps.length > 1 ? 's' : ''} pending — check Field Notes.` : ' Create one in Jobs and I will brief you before you knock.';
       setMessages([{ role: 'assistant', content: `Hey.${streakNote} No active jobs yet.${fuNote}` }]);
+      queueHandsFreeRestart();
     }
   };
 
@@ -219,35 +412,209 @@ function VoicePageInner() {
     }
     ttsPlayingRef.current = true;
     setSpeaking(true);
-    const url = audioQueueRef.current.shift()!;
+    const item = audioQueueRef.current.shift()!;
+    const { url, text } = item;
     const audio = new Audio(url);
     audioRef.current = audio;
     audio.onended = () => { URL.revokeObjectURL(url); audioRef.current = null; playNextInQueue(); };
     audio.onerror = () => { URL.revokeObjectURL(url); audioRef.current = null; playNextInQueue(); };
-    audio.play().catch(() => { URL.revokeObjectURL(url); playNextInQueue(); });
+    audio.play().catch(async (err: any) => {
+      const shouldFallback = isHandsFreeAudioFallback();
+      if (shouldFallback) {
+        if (await speakWithDeviceFallback(text)) {
+          URL.revokeObjectURL(url);
+          audioRef.current = null;
+          ttsPlayingRef.current = false;
+          setSpeaking(false);
+          if (audioQueueRef.current.length > 0) setTimeout(() => playNextInQueue(), 40);
+          queueHandsFreeRestart();
+          return;
+        }
+      }
+      if (isNotAllowedPlaybackError(err) || shouldFallback) {
+        audioQueueRef.current.unshift(item);
+        audioRef.current = null;
+        ttsPlayingRef.current = false;
+        setSpeaking(false);
+        audioPlaybackBlockedRef.current = true;
+        setAudioPlaybackBlocked(true);
+        setTtsStatus('Audio playback is blocked by browser policy. Tap "Enable Audio" if needed.');
+        queueHandsFreeRestart();
+        return;
+      }
+      URL.revokeObjectURL(url);
+      audioRef.current = null;
+      playNextInQueue();
+    });
+  };
+
+  const resumeAudioPlayback = () => {
+    if (!audioPlaybackBlockedRef.current) return;
+    audioPlaybackBlockedRef.current = false;
+    setAudioPlaybackBlocked(false);
+    if (!ttsPlayingRef.current && audioQueueRef.current.length > 0) playNextInQueue();
   };
 
   const enqueueTTS = async (text: string) => {
     if (!text.trim()) return;
-    try {
+    ttsRequestQueueRef.current.push(text.trim());
+    if (!isGeneratingTtsRef.current) generateTtsQueue();
+  };
+
+  const generateTtsQueue = async () => {
+    if (isGeneratingTtsRef.current) return;
+    isGeneratingTtsRef.current = true;
+
+    const processOne = async (text: string) => {
       const savedVoice = typeof window !== 'undefined' ? localStorage.getItem('remy_voice') || undefined : undefined;
+      const shouldUseDeviceSpeech = isHandsFreeAudioFallback();
       const res = await fetch('/api/voice', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ text, voiceId: savedVoice }),
       });
-      if (!res.ok) return;
+
+      if (!res.ok) {
+        if (res.status === 429 || res.status === 503) {
+          if (shouldUseDeviceSpeech) {
+              const fallbackOk = await speakWithDeviceFallback(text);
+              if (fallbackOk) {
+                if (audioPlaybackBlockedRef.current) {
+                  audioPlaybackBlockedRef.current = false;
+                  setAudioPlaybackBlocked(false);
+                }
+                setTtsStatus('');
+                ttsBackoffMsRef.current = 1000;
+                return true;
+              }
+            }
+          const retryIn = ttsBackoffMsRef.current;
+          setTtsStatus('Hands-free TTS is delayed by provider load. Retrying…');
+          ttsBackoffMsRef.current = Math.min(retryIn * 2, 12000);
+          if (retryIn >= 8000) {
+            const fallbackOk = await speakWithDeviceFallback(text);
+            if (fallbackOk) {
+              setTtsStatus('');
+              ttsBackoffMsRef.current = 1000;
+              return true;
+            }
+          }
+          await new Promise(r => setTimeout(r, retryIn));
+          return false; // retry same text
+        }
+        if (res.status === 402) {
+          const plan = res.headers.get('X-Remy-Voice-Plan') || 'free';
+          const allowed = getUsageHeaderNumber(res.headers.get('X-Remy-Voice-Allowed'));
+          const used = getUsageHeaderNumber(res.headers.get('X-Remy-Voice-Used'));
+          const remaining = getUsageHeaderNumber(res.headers.get('X-Remy-Voice-Remaining-Included'));
+          const usedText = used !== null ? used : '?';
+          const allowedText = allowed !== null ? allowed : '?';
+          const remainingText = remaining !== null ? remaining : '?';
+          setTtsStatus(`Voice limit reached for ${plan}: ${usedText}/${allowedText} used, ${remainingText} included left. Upgrade to keep speaking right away.`);
+          return true;
+        }
+        if (res.status >= 500) {
+          const fallbackOk = await speakWithDeviceFallback(text);
+          if (fallbackOk) {
+            if (audioPlaybackBlockedRef.current) {
+              audioPlaybackBlockedRef.current = false;
+              setAudioPlaybackBlocked(false);
+            }
+            setTtsStatus('');
+            ttsBackoffMsRef.current = 1000;
+            return true;
+          }
+
+          const retryIn = ttsBackoffMsRef.current;
+          setTtsStatus(`Remy voice service error (${res.status}). Retrying in ~${Math.max(1, Math.round(retryIn / 1000))}s.`);
+          ttsBackoffMsRef.current = Math.min(retryIn * 2, 12000);
+          await new Promise(r => setTimeout(r, retryIn));
+          return false; // retry same text
+        }
+        return true;
+      }
+
       const blob = await res.blob();
+      updateTtsUsageBanner(res);
+      if (!blob.size) return true;
       const url = URL.createObjectURL(blob);
-      audioQueueRef.current.push(url);
+      audioQueueRef.current.push({ url, text });
       if (!ttsPlayingRef.current) playNextInQueue();
-    } catch {}
+      setTtsStatus('');
+      ttsBackoffMsRef.current = 1000;
+      return true;
+    };
+
+    try {
+      while (ttsRequestQueueRef.current.length > 0) {
+        const text = ttsRequestQueueRef.current.shift()!;
+        let shouldContinue = true;
+        try {
+          shouldContinue = await processOne(text);
+        } catch {
+          const fallbackOk = await speakWithDeviceFallback(text);
+          if (fallbackOk) {
+            if (audioPlaybackBlockedRef.current) {
+              audioPlaybackBlockedRef.current = false;
+              setAudioPlaybackBlocked(false);
+            }
+            shouldContinue = true;
+          } else {
+            setTtsStatus('Voice request failed. retrying this phrase.');
+            ttsBackoffMsRef.current = Math.min(ttsBackoffMsRef.current * 2, 12000);
+            shouldContinue = false;
+          }
+        }
+        if (!shouldContinue) {
+          ttsRequestQueueRef.current.unshift(text);
+          continue;
+        }
+      }
+    } finally {
+      isGeneratingTtsRef.current = false;
+    }
   };
+
+  const enqueueSpeechText = (text: string) => {
+    const trimmed = text.replace(/\s+/g, ' ').trim();
+    const minChars = isHandsFreeAudioFallback() ? MIN_TTS_CHARS_HANDS_FREE : MIN_TTS_CHARS;
+    if (!trimmed || trimmed.length < minChars) return;
+    if (trimmed.length <= MAX_TTS_CHARS) {
+      enqueueTTS(trimmed);
+      return;
+    }
+    let remaining = trimmed;
+    while (remaining.length > MAX_TTS_CHARS) {
+      const chunk = remaining.slice(0, MAX_TTS_CHARS);
+      let splitAt = chunk.lastIndexOf(' ');
+      if (splitAt < minChars) splitAt = MAX_TTS_CHARS;
+      const head = remaining.slice(0, splitAt).trim();
+      if (head) enqueueTTS(head);
+      remaining = remaining.slice(splitAt).trim();
+    }
+    if (remaining.length >= minChars) enqueueTTS(remaining);
+  };
+
+  useEffect(() => {
+    if (!audioPlaybackBlocked) return;
+    const unlock = () => resumeAudioPlayback();
+    const onTouch = () => resumeAudioPlayback();
+    window.addEventListener('pointerdown', unlock, { once: true });
+    window.addEventListener('keydown', unlock, { once: true });
+    window.addEventListener('touchstart', onTouch, { once: true });
+    return () => {
+      window.removeEventListener('pointerdown', unlock);
+      window.removeEventListener('keydown', unlock);
+      window.removeEventListener('touchstart', onTouch);
+    };
+  }, [audioPlaybackBlocked]);
 
   const stopSpeaking = () => {
     if (audioRef.current) { audioRef.current.pause(); audioRef.current = null; }
+    if ('speechSynthesis' in window) { window.speechSynthesis.cancel(); }
     audioQueueRef.current = [];
     ttsPlayingRef.current = false;
+    ttsRequestQueueRef.current = [];
     setSpeaking(false);
   };
 
@@ -269,7 +636,17 @@ function VoicePageInner() {
       const res = await fetch('/api/chat', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ messages: [...currentMessages, userMsg], doctrine: currentDoctrine, jobContext, memories: currentMemories, repId: user?.id, jobId: currentJob?.id, userLat: geoRef.current?.lat, userLng: geoRef.current?.lng }),
+        body: JSON.stringify({
+          messages: [...currentMessages, userMsg],
+          doctrine: currentDoctrine,
+          jobContext,
+          memories: currentMemories,
+          repId: user?.id,
+          jobId: currentJob?.id,
+          userLat: geoRef.current?.lat,
+          userLng: geoRef.current?.lng,
+          isHandsFree: handsFreeRef.current,
+        }),
       });
 
       if (!res.ok || !res.body) throw new Error('Bad response');
@@ -297,14 +674,14 @@ function VoicePageInner() {
         const parts = sentenceBuffer.split(/(?<=[.!?])\s+/);
         if (parts.length > 1) {
           for (let i = 0; i < parts.length - 1; i++) {
-            if (parts[i].trim().length > 5) enqueueTTS(parts[i].trim());
+            enqueueSpeechText(parts[i]);
           }
           sentenceBuffer = parts[parts.length - 1];
         }
       }
 
       // Flush any remaining text
-      if (sentenceBuffer.trim().length > 5) enqueueTTS(sentenceBuffer.trim());
+      enqueueSpeechText(sentenceBuffer);
 
       const finalMessages: Message[] = [...currentMessages, userMsg, { role: 'assistant', content: fullText }];
       setMessages(finalMessages);
@@ -325,6 +702,7 @@ function VoicePageInner() {
       });
     }
     setLoading(false);
+    queueHandsFreeRestart();
     // Show quick outcome buttons after any response when a job is active
     if (activeJobRef.current) setShowOutcomeBtns(true);
   };
@@ -345,7 +723,7 @@ function VoicePageInner() {
       const res = await fetch('/api/chat', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
+          body: JSON.stringify({
           messages: [
             ...currentMessages,
             {
@@ -363,6 +741,7 @@ function VoicePageInner() {
           jobId: currentJob?.id,
           userLat: geoRef.current?.lat,
           userLng: geoRef.current?.lng,
+          isHandsFree: handsFreeRef.current,
         }),
       });
 
@@ -389,13 +768,17 @@ function VoicePageInner() {
         const parts = sentenceBuffer.split(/(?<=[.!?])\s+/);
         if (parts.length > 1) {
           for (let i = 0; i < parts.length - 1; i++) {
-            if (parts[i].trim().length > 5) enqueueTTS(parts[i].trim());
+            enqueueSpeechText(parts[i]);
           }
           sentenceBuffer = parts[parts.length - 1];
         }
       }
 
-      if (sentenceBuffer.trim().length > 5) enqueueTTS(sentenceBuffer.trim());
+      enqueueSpeechText(sentenceBuffer);
+
+      if (ttsStatus) {
+        setTtsStatus('');
+      }
 
       const userDisplayMsg: Message = { role: 'user', content: '📷 Photo sent for analysis' };
       const finalMessages: Message[] = [...currentMessages, userDisplayMsg, { role: 'assistant', content: fullText }];
@@ -409,6 +792,7 @@ function VoicePageInner() {
       });
     }
     setLoading(false);
+    queueHandsFreeRestart();
   };
 
   const handlePhotoCapture = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -449,18 +833,35 @@ function VoicePageInner() {
 
       recognition.onstart = () => setListening(true);
       recognition.onresult = (e: any) => {
+        const allTranscript = Array.from(e.results)
+          .map((result: any) => result[0]?.transcript || '')
+          .join(' ')
+          .trim();
+        if (!allTranscript) return;
+        setInput(allTranscript);
         const last = e.results[e.results.length - 1];
-        const transcript = last[0].transcript;
-        if (!last.isFinal) { setInput(transcript); return; }
+        if (!last.isFinal) return;
         recognitionRef.current = null;
         setListening(false);
         setInput('');
-        if (transcript.trim()) {
-          doSend(transcript, sessionMessagesRef.current, doctrineRef.current, activeJobRef.current, memoriesRef.current);
-        }
+        handleSpokenText(allTranscript);
       };
-      recognition.onerror = () => { setListening(false); setInput(''); recognitionRef.current = null; };
-      recognition.onend = () => { setListening(false); setInput(''); recognitionRef.current = null; };
+      recognition.onerror = (e: any) => {
+        setListening(false);
+        setInput('');
+        recognitionRef.current = null;
+        if (e?.error === 'not-allowed' || e?.error === 'service-not-allowed' || e?.error === 'audio-capture') {
+          setHandsFreeWithPreference(false);
+          return;
+        }
+        queueHandsFreeRestart();
+      };
+      recognition.onend = () => {
+        setListening(false);
+        setInput('');
+        recognitionRef.current = null;
+        queueHandsFreeRestart();
+      };
       recognition.start();
       setListening(true);
     } catch { startListening(); }
@@ -475,7 +876,7 @@ function VoicePageInner() {
 
   const toggleHandsFree = () => {
     const next = !handsFree;
-    setHandsFree(next);
+    setHandsFreeWithPreference(next);
     if (next && !loading && !speaking) setTimeout(() => startVADListening(), 200);
     else if (!next) stopVADListening();
   };
@@ -514,7 +915,7 @@ function VoicePageInner() {
       form.append('audio', blob, 'recording.webm');
       const res = await fetch('/api/transcribe', { method: 'POST', body: form });
       const data = await res.json();
-      if (data.text?.trim()) await doSend(data.text, sessionMessagesRef.current, doctrineRef.current, activeJobRef.current, memoriesRef.current);
+      if (data.text?.trim()) await handleSpokenText(data.text);
       else setLoading(false);
     } catch { setLoading(false); }
   };
@@ -550,8 +951,7 @@ function VoicePageInner() {
     });
     navigator.mediaSession.setActionHandler('nexttrack', () => {
       const next = !handsFreeRef.current;
-      handsFreeRef.current = next;
-      setHandsFree(next);
+      setHandsFreeWithPreference(next);
       if (next && !loadingRef.current && !ttsPlayingRef.current) setTimeout(() => startVADListening(), 200);
       else { recognitionRef.current?.stop(); recognitionRef.current = null; setListening(false); }
     });
@@ -626,6 +1026,14 @@ function VoicePageInner() {
         </div>
 
         <div style={{ display: 'flex', alignItems: 'center', gap: '8px', position: 'relative' }}>
+          {audioPlaybackBlocked && (
+            <button
+              onClick={resumeAudioPlayback}
+              style={{ padding: '6px 12px', borderRadius: '20px', border: '1px solid #f1c40f44', background: '#f1c40f16', color: '#f39c12', fontFamily: "'DM Sans',sans-serif", fontSize: '0.68rem', fontWeight: 600, cursor: 'pointer' }}
+            >
+              Enable Audio
+            </button>
+          )}
           <button
             onClick={toggleHandsFree}
             title={handsFree ? 'Hands-free ON — tap to disable' : 'Enable hands-free (no button needed)'}
@@ -682,6 +1090,12 @@ function VoicePageInner() {
           )}
         </div>
       </div>
+
+      {ttsStatus && (
+        <div style={{ padding: '6px 16px', background: '#1a2a3a', borderTop: `1px solid rgba(241,196,15,0.35)`, color: '#f39c12', fontSize: '0.72rem', fontWeight: 500 }}>
+          {ttsStatus}
+        </div>
+      )}
 
       {/* Messages */}
       <div ref={scrollRef} style={{ flex: 1, overflowY: 'auto', padding: '20px', display: 'flex', flexDirection: 'column', gap: '12px' }}>
