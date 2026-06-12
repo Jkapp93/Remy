@@ -25,7 +25,7 @@ export async function OPTIONS(req: NextRequest) {
   return new Response(null, { status: 204, headers: corsHeadersFor(req) });
 }
 
-// Generic CRM webhook — accepts jobs from JobNimbus, AccuLynx, ServiceTitan, etc.
+// Generic CRM webhook â€” accepts jobs from JobNimbus, AccuLynx, ServiceTitan, etc.
 export async function POST(req: NextRequest) {
   try {
     const supabase = createClient(

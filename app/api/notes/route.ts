@@ -148,6 +148,15 @@ export async function GET(req: NextRequest) {
   let query = supabase.from('job_notes').select('*').order('created_at', { ascending: false }).limit(50);
 
   if (jobId) {
+    // The job's notes are only visible to members of the company that owns it
+    const { data: jobRow } = await supabase
+      .from('jobs')
+      .select('company_id')
+      .eq('id', jobId)
+      .single();
+    if (!jobRow || jobRow.company_id !== userProfile.company_id) {
+      return NextResponse.json({ notes: [] }, { status: 403 });
+    }
     query = query.eq('job_id', jobId);
   } else if (repId) {
     query = query.eq('rep_id', repId);
