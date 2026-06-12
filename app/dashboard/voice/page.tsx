@@ -1040,6 +1040,12 @@ function VoicePageInner() {
       };
       armWatchdog(7000);
 
+      // iOS Safari often delivers interim results but never marks anything
+      // isFinal — especially right after Bluetooth audio mode flips. Track
+      // the latest interim so onend can send it instead of discarding it.
+      let pendingTranscript = '';
+      let sent = false;
+
       recognition.onstart = () => setListening(true);
       recognition.onresult = (e: any) => {
         armWatchdog(20000);
@@ -1048,9 +1054,11 @@ function VoicePageInner() {
           .join(' ')
           .trim();
         if (!allTranscript) return;
+        pendingTranscript = allTranscript;
         setInput(allTranscript);
         const last = e.results[e.results.length - 1];
         if (!last.isFinal) return;
+        sent = true;
         clearWatchdog();
         recognitionRef.current = null;
         listeningRef.current = false;
@@ -1085,6 +1093,16 @@ function VoicePageInner() {
         setListening(false);
         setInput('');
         recognitionRef.current = null;
+        // Session ended with heard-but-never-finalized speech: send it.
+        // Without this, iOS quietly discards what the rep said on turns
+        // where no isFinal ever arrives (the "it almost showed my words
+        // then nothing" failure).
+        if (!sent && pendingTranscript && !(recognition as any).__cancelled) {
+          sent = true;
+          voiceCrumb('final never arrived — sending interim transcript', { chars: pendingTranscript.length });
+          handleSpokenText(pendingTranscript);
+          return;
+        }
         queueHandsFreeRestart();
       };
       recognition.start();
@@ -1099,6 +1117,7 @@ function VoicePageInner() {
   const stopVADListening = () => {
     if (micRestartTimerRef.current) { clearTimeout(micRestartTimerRef.current); micRestartTimerRef.current = null; }
     if (recWatchdogRef.current) { clearTimeout(recWatchdogRef.current); recWatchdogRef.current = null; }
+    if (recognitionRef.current) (recognitionRef.current as any).__cancelled = true; // deliberate stop — don't send pending speech
     recognitionRef.current?.stop();
     recognitionRef.current = null;
     listeningRef.current = false;
