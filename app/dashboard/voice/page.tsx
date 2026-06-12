@@ -75,6 +75,7 @@ function VoicePageInner() {
   const isGeneratingTtsRef = useRef(false);
   const listeningRef = useRef(false);
   const micRestartTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const recWatchdogRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Refs for legacy push-to-talk fallback
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
@@ -962,8 +963,31 @@ function VoicePageInner() {
       recognition.interimResults = true;
       recognition.lang = 'en-US';
 
+      // Zombie-session watchdog: iOS Safari sometimes keeps a recognition
+      // session "open" but stops delivering results AND never fires onend —
+      // the mic looks live but is dead. If nothing arrives for 20s, kill the
+      // session ourselves and restart. Any result re-arms the timer.
+      const clearWatchdog = () => {
+        if (recWatchdogRef.current) { clearTimeout(recWatchdogRef.current); recWatchdogRef.current = null; }
+      };
+      const armWatchdog = () => {
+        clearWatchdog();
+        recWatchdogRef.current = setTimeout(() => {
+          recWatchdogRef.current = null;
+          if (recognitionRef.current !== recognition) return;
+          try { recognition.abort(); } catch {}
+          recognitionRef.current = null;
+          listeningRef.current = false;
+          setListening(false);
+          setInput('');
+          queueHandsFreeRestart(200);
+        }, 20000);
+      };
+      armWatchdog();
+
       recognition.onstart = () => setListening(true);
       recognition.onresult = (e: any) => {
+        armWatchdog();
         const allTranscript = Array.from(e.results)
           .map((result: any) => result[0]?.transcript || '')
           .join(' ')
@@ -972,6 +996,7 @@ function VoicePageInner() {
         setInput(allTranscript);
         const last = e.results[e.results.length - 1];
         if (!last.isFinal) return;
+        clearWatchdog();
         recognitionRef.current = null;
         listeningRef.current = false;
         setListening(false);
@@ -979,6 +1004,7 @@ function VoicePageInner() {
         handleSpokenText(allTranscript);
       };
       recognition.onerror = (e: any) => {
+        clearWatchdog();
         listeningRef.current = false;
         setListening(false);
         setInput('');
@@ -990,6 +1016,7 @@ function VoicePageInner() {
         queueHandsFreeRestart(500);
       };
       recognition.onend = () => {
+        clearWatchdog();
         listeningRef.current = false;
         setListening(false);
         setInput('');
@@ -1007,6 +1034,7 @@ function VoicePageInner() {
 
   const stopVADListening = () => {
     if (micRestartTimerRef.current) { clearTimeout(micRestartTimerRef.current); micRestartTimerRef.current = null; }
+    if (recWatchdogRef.current) { clearTimeout(recWatchdogRef.current); recWatchdogRef.current = null; }
     recognitionRef.current?.stop();
     recognitionRef.current = null;
     listeningRef.current = false;
@@ -1096,6 +1124,19 @@ function VoicePageInner() {
     else releaseWakeLock();
     return () => releaseWakeLock();
   }, [handsFree]);
+
+  // Liveness heartbeat: hands-free must never stay silently dead. Whatever
+  // edge case kills the restart chain (zombie recognition, dropped event,
+  // future regression), this revives the mic within ~5 seconds.
+  useEffect(() => {
+    const id = setInterval(() => {
+      if (!handsFreeRef.current) return;
+      if (typeof document !== 'undefined' && document.visibilityState !== 'visible') return;
+      if (micRestartTimerRef.current) return; // a restart is already scheduled
+      if (speechPipelineIdle()) startVADListening();
+    }, 5000);
+    return () => clearInterval(id);
+  }, []);
 
   // Backgrounding the tab kills the mic and auto-releases the wake lock.
   // Stop cleanly on hide; re-arm everything when the rep comes back.
