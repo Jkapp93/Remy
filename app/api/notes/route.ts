@@ -1,7 +1,44 @@
-﻿import { NextRequest, NextResponse } from 'next/server';
+import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import Anthropic from '@anthropic-ai/sdk';
 import { auth } from '@clerk/nextjs/server';
+
+const isAllowedCrmWebhookUrl = (crmWebhookUrl: string | null) => {
+  if (!crmWebhookUrl) return false;
+
+  let parsed: URL;
+  try {
+    parsed = new URL(crmWebhookUrl);
+  } catch {
+    return false;
+  }
+
+  if (parsed.protocol !== 'https:') return false;
+
+  const host = parsed.hostname.toLowerCase();
+  if (
+    host === 'localhost' ||
+    host === '127.0.0.1' ||
+    host === '::1' ||
+    host.endsWith('.local')
+  ) {
+    return false;
+  }
+
+  const ipParts = host.split('.').map((part) => Number(part));
+  if (ipParts.length === 4 && ipParts.every((part) => Number.isFinite(part) && part >= 0 && part <= 255)) {
+    // Block private IP ranges in common cases
+    if (
+      ipParts[0] === 10 ||
+      (ipParts[0] === 172 && ipParts[1] >= 16 && ipParts[1] <= 31) ||
+      (ipParts[0] === 192 && ipParts[1] === 168)
+    ) {
+      return false;
+    }
+  }
+
+  return true;
+};
 
 export async function POST(req: NextRequest) {
   const supabase = createClient(
@@ -22,11 +59,7 @@ export async function POST(req: NextRequest) {
       max_tokens: 300,
       messages: [{
         role: 'user',
-        content: `Extract structured info from this field rep note. Return JSON only, no markdown.
-Note: "${rawNote}"
-Job: ${jobName || 'Unknown'}
-
-Return: { "summary": "one sentence", "quote_amount": "dollar amount or null", "follow_up_date": "date mentioned or null", "outcome": "sold/no_sale/follow_up/inspection/other", "key_details": ["detail1", "detail2"] }`
+        content: `Extract structured info from this field rep note. Return JSON only, no markdown.\nNote: "${rawNote}"\nJob: ${jobName || 'Unknown'}\n\nReturn: { "summary": "one sentence", "quote_amount": "dollar amount or null", "follow_up_date": "date mentioned or null", "outcome": "sold/no_sale/follow_up/inspection/other", "key_details": ["detail1", "detail2"] }`
       }]
     });
 
@@ -57,7 +90,7 @@ Return: { "summary": "one sentence", "quote_amount": "dollar amount or null", "f
       .single();
 
     const crmUrl = (profile?.companies as any)?.crm_webhook_url;
-    if (crmUrl) {
+    if (crmUrl && isAllowedCrmWebhookUrl(crmUrl)) {
       fetch(crmUrl, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -91,28 +124,54 @@ export async function GET(req: NextRequest) {
   const repId = searchParams.get('repId');
   const companyId = searchParams.get('companyId');
 
-  // Auth gate: repId queries must match the authenticated user
-  if (repId) {
-    const { userId } = await auth();
-    if (!userId || userId !== repId) return NextResponse.json({ notes: [] }, { status: 401 });
+  const { userId } = await auth();
+  if (!userId) return NextResponse.json({ notes: [] }, { status: 401 });
+
+  const { data: userProfile, error: userProfileError } = await supabase
+    .from('profiles')
+    .select('company_id')
+    .eq('clerk_id', userId)
+    .single();
+
+  if (userProfileError || !userProfile?.company_id) {
+    return NextResponse.json({ notes: [] }, { status: 403 });
+  }
+
+  if (repId && repId !== userId) {
+    return NextResponse.json({ notes: [] }, { status: 401 });
+  }
+
+  if (companyId && companyId !== userProfile.company_id) {
+    return NextResponse.json({ notes: [] }, { status: 403 });
   }
 
   let query = supabase.from('job_notes').select('*').order('created_at', { ascending: false }).limit(50);
 
   if (jobId) {
     query = query.eq('job_id', jobId);
+  } else if (repId) {
+    query = query.eq('rep_id', repId);
   } else if (companyId) {
     const { data: profiles } = await supabase
       .from('profiles')
       .select('clerk_id')
       .eq('company_id', companyId);
-    const repIds = (profiles || []).map((p: any) => p.clerk_id);
-    if (repIds.length > 0) query = query.in('rep_id', repIds);
-    else return NextResponse.json({ notes: [] });
-  } else if (repId) {
-    query = query.eq('rep_id', repId);
+
+    const repIds = (profiles || []).map((p: any) => p.clerk_id).filter(Boolean);
+
+    if (repIds.length === 0) {
+      return NextResponse.json({ notes: [] });
+    }
+
+    query = query.in('rep_id', repIds);
+  } else {
+    query = query.eq('rep_id', userId);
   }
 
-  const { data } = await query;
+  const { data, error } = await query;
+  if (error) {
+    return NextResponse.json({ error: 'Failed' }, { status: 500 });
+  }
+
   return NextResponse.json({ notes: data || [] });
 }

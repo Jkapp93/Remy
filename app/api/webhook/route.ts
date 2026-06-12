@@ -1,17 +1,31 @@
-﻿import { NextRequest, NextResponse } from 'next/server';
+import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 
-const CORS_HEADERS = {
-  'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Methods': 'POST, GET, OPTIONS',
-  'Access-Control-Allow-Headers': 'Content-Type, Authorization',
+const ALLOWED_ORIGINS = [
+  process.env.NEXT_PUBLIC_APP_URL,
+  process.env.WEBHOOK_ALLOWED_ORIGIN,
+].filter(Boolean) as string[];
+
+const corsHeadersFor = (req: NextRequest) => {
+  const origin = req.headers.get('origin');
+  const allowedOrigin = origin && ALLOWED_ORIGINS.includes(origin) ? origin : ALLOWED_ORIGINS[0] || '';
+  const headers = {
+    'Access-Control-Allow-Methods': 'POST, GET, OPTIONS',
+    'Access-Control-Allow-Headers': 'Content-Type, Authorization',
+  } as Record<string, string>;
+
+  if (allowedOrigin) {
+    headers['Access-Control-Allow-Origin'] = allowedOrigin;
+  }
+
+  return headers;
 };
 
-export async function OPTIONS() {
-  return new Response(null, { status: 204, headers: CORS_HEADERS });
+export async function OPTIONS(req: NextRequest) {
+  return new Response(null, { status: 204, headers: corsHeadersFor(req) });
 }
 
-// Generic CRM webhook — accepts jobs from JobNimbus, AccuLynx, ServiceTitan, etc.
+// Generic CRM webhook � accepts jobs from JobNimbus, AccuLynx, ServiceTitan, etc.
 export async function POST(req: NextRequest) {
   try {
     const supabase = createClient(
@@ -21,11 +35,13 @@ export async function POST(req: NextRequest) {
     const authHeader = req.headers.get('authorization');
     const webhookSecret = process.env.WEBHOOK_SECRET;
 
-    // Always enforce auth if secret is configured — no silent passthrough
     if (!webhookSecret) {
-      console.warn('WEBHOOK_SECRET not set — endpoint is open. Set it in Vercel env vars.');
-    } else if (authHeader !== `Bearer ${webhookSecret}`) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401, headers: CORS_HEADERS });
+      console.error('WEBHOOK_SECRET is not configured. Rejecting webhook request.');
+      return NextResponse.json({ error: 'Server not configured' }, { status: 500, headers: corsHeadersFor(req) });
+    }
+
+    if (authHeader !== `Bearer ${webhookSecret}`) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401, headers: corsHeadersFor(req) });
     }
 
     const body = await req.json();
@@ -50,19 +66,18 @@ export async function POST(req: NextRequest) {
 
       if (existing) {
         await supabase.from('jobs').update(job).eq('crm_id', job.crm_id);
-        return NextResponse.json({ success: true, action: 'updated' });
+        return NextResponse.json({ success: true, action: 'updated' }, { headers: corsHeadersFor(req) });
       }
     }
 
     await supabase.from('jobs').insert(job);
-    return NextResponse.json({ success: true, action: 'created' }, { headers: CORS_HEADERS });
-
+    return NextResponse.json({ success: true, action: 'created' }, { headers: corsHeadersFor(req) });
   } catch (error) {
     console.error('Webhook error:', error);
-    return NextResponse.json({ error: 'Failed' }, { status: 500, headers: CORS_HEADERS });
+    return NextResponse.json({ error: 'Failed' }, { status: 500, headers: corsHeadersFor(req) });
   }
 }
 
-export async function GET() {
-  return NextResponse.json({ status: 'Remy webhook active', version: '1.0' }, { headers: CORS_HEADERS });
+export async function GET(req: NextRequest) {
+  return NextResponse.json({ status: 'Remy webhook active', version: '1.0' }, { headers: corsHeadersFor(req) });
 }
