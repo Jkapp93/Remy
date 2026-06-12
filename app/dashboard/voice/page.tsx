@@ -22,7 +22,16 @@ const DOCTRINE_TTL = 15 * 60 * 1000; // 15 minutes
 const SESSION_TTL = 12 * 60 * 60 * 1000; // 12 hours — don't restore yesterday's session
 
 type Message = { role: 'user' | 'assistant'; content: string };
-type Job = { id: string; customer_name: string; address: string; notes: string; status: string; job_type: string; deal_value?: number };
+type Job = { id: string; customer_name: string; address: string; notes: string; status: string; job_type: string; deal_value?: number; scheduled_at?: string; customer_phone?: string };
+
+const formatApptTime = (iso?: string) => {
+  if (!iso) return null;
+  const d = new Date(iso);
+  if (isNaN(d.getTime())) return null;
+  const sameDay = d.toDateString() === new Date().toDateString();
+  const time = d.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' });
+  return sameDay ? `${time} today` : `${time} on ${d.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })}`;
+};
 
 async function getCachedDoctrine(clerkId: string): Promise<string> {
   try {
@@ -747,7 +756,7 @@ function VoicePageInner() {
 
   const doSend = async (text: string, currentMessages: Message[], currentDoctrine: string, currentJob: Job | null, currentMemories: {content: string}[]) => {
     const jobContext = currentJob
-      ? `Customer: ${currentJob.customer_name}\nAddress: ${currentJob.address || 'Not provided'}\nNotes: ${currentJob.notes || 'None'}\nJob type: ${currentJob.job_type || 'General'}${currentJob.deal_value ? `\nDeal value: $${currentJob.deal_value.toLocaleString()}` : ''}`
+      ? `Customer: ${currentJob.customer_name}\nAddress: ${currentJob.address || 'Not provided'}\nNotes: ${currentJob.notes || 'None'}\nJob type: ${currentJob.job_type || 'General'}${currentJob.deal_value ? `\nDeal value: $${currentJob.deal_value.toLocaleString()}` : ''}${formatApptTime(currentJob.scheduled_at) ? `\nAppointment: ${formatApptTime(currentJob.scheduled_at)}` : ''}`
       : '';
 
     const userMsg: Message = { role: 'user', content: text };
@@ -845,7 +854,7 @@ function VoicePageInner() {
     const currentMessages = sessionMessagesRef.current;
 
     const jobContext = currentJob
-      ? `Customer: ${currentJob.customer_name}\nAddress: ${currentJob.address || 'Not provided'}\nNotes: ${currentJob.notes || 'None'}\nJob type: ${currentJob.job_type || 'General'}${currentJob.deal_value ? `\nDeal value: $${currentJob.deal_value.toLocaleString()}` : ''}`
+      ? `Customer: ${currentJob.customer_name}\nAddress: ${currentJob.address || 'Not provided'}\nNotes: ${currentJob.notes || 'None'}\nJob type: ${currentJob.job_type || 'General'}${currentJob.deal_value ? `\nDeal value: $${currentJob.deal_value.toLocaleString()}` : ''}${formatApptTime(currentJob.scheduled_at) ? `\nAppointment: ${formatApptTime(currentJob.scheduled_at)}` : ''}`
       : '';
 
     try {
@@ -1247,11 +1256,12 @@ function VoicePageInner() {
     }
     const jobList = jobs.slice(0, 5).map(j => {
       const mi = distances.get(j.id);
+      const appt = formatApptTime(j.scheduled_at);
       const noteSnip = j.notes ? ` — notes: "${j.notes.slice(0, 80)}"` : '';
-      return `${j.customer_name}${j.address ? ` at ${j.address}` : ''}${mi !== undefined ? ` (~${mi < 10 ? mi.toFixed(1) : Math.round(mi)} mi from me)` : ''}${j.deal_value ? ` ($${j.deal_value.toLocaleString()})` : ''}${noteSnip}`;
+      return `${j.customer_name}${j.address ? ` at ${j.address}` : ''}${appt ? ` [appt ${appt}]` : ''}${mi !== undefined ? ` (~${mi < 10 ? mi.toFixed(1) : Math.round(mi)} mi from me)` : ''}${j.deal_value ? ` ($${j.deal_value.toLocaleString()})` : ''}${noteSnip}`;
     }).join('; ');
-    const routeNote = distances.size > 0
-      ? ' Suggest my run order: appointment times in the notes anchor the day, fill the gaps nearest-first. BUT if the geography makes a swap clearly smarter (like I am right next to a later appointment), say so and tell me to call and flip them — name which two and why.'
+    const routeNote = distances.size > 0 || jobs.some(j => j.scheduled_at)
+      ? ' Suggest my run order: appointment times anchor the day (the [appt] tags are exact; notes may mention others), fill the gaps nearest-first. BUT if the geography makes a swap clearly smarter (like I am right next to a later appointment), say so and tell me to call and flip them — name which two and why.'
       : '';
     const pipelineVal = jobs.reduce((sum, j) => sum + (j.deal_value || 0), 0);
     const fuDetails = followUpsRef.current
@@ -1308,6 +1318,15 @@ function VoicePageInner() {
               style={{ padding: '4px 7px', borderRadius: '50%', textDecoration: 'none', fontSize: '0.85rem', lineHeight: 1 }}
             >
               🧭
+            </a>
+          )}
+          {activeJob?.customer_phone && (
+            <a
+              href={`sms:${activeJob.customer_phone.replace(/[^+\d]/g, '')}?&body=${encodeURIComponent(`Hi ${activeJob.customer_name.split(' ')[0]}, it's ${(profile as any)?.full_name?.split(' ')[0] || 'your rep'}${(profile?.companies as any)?.name ? ` with ${(profile?.companies as any).name}` : ''} — on my way to you now.`)}`}
+              title={`Text ${activeJob.customer_name}: on my way`}
+              style={{ padding: '4px 7px', borderRadius: '50%', textDecoration: 'none', fontSize: '0.85rem', lineHeight: 1 }}
+            >
+              💬
             </a>
           )}
           {audioPlaybackBlocked && (

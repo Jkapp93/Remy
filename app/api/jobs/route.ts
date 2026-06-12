@@ -39,11 +39,13 @@ export async function POST(req: NextRequest) {
     if (!companyId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
     const body = await req.json();
-    const { customer_name, address, notes, job_type } = body;
+    const { customer_name, address, notes, job_type, scheduled_at, customer_phone } = body;
     if (!customer_name?.trim()) return NextResponse.json({ error: 'customer_name required' }, { status: 400 });
     const { data, error } = await supabase.from('jobs').insert({
       customer_name, address: address || '', notes: notes || '',
       status: 'active', job_type: job_type || 'other',
+      scheduled_at: scheduled_at || null,
+      customer_phone: customer_phone || null,
       company_id: companyId,
     }).select().single();
     if (error) return NextResponse.json({ error: error.message }, { status: 500 });
@@ -54,7 +56,7 @@ export async function POST(req: NextRequest) {
   }
 }
 
-const PATCHABLE_FIELDS = ['status', 'notes', 'address', 'customer_name', 'job_type', 'stage', 'deal_value'];
+const PATCHABLE_FIELDS = ['status', 'notes', 'address', 'customer_name', 'job_type', 'stage', 'deal_value', 'scheduled_at', 'customer_phone'];
 
 export async function PATCH(req: NextRequest) {
   try {
