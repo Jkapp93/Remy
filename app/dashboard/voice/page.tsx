@@ -60,6 +60,7 @@ function VoicePageInner() {
   const [showOutcomeBtns, setShowOutcomeBtns] = useState(false);
   const [audioPlaybackBlocked, setAudioPlaybackBlocked] = useState(false);
   const [ttsStatus, setTtsStatus] = useState('');
+  const [gpsStatus, setGpsStatus] = useState<'off' | 'locating' | 'on'>('off');
 
   // Refs for audio — one persistent <audio> element, reused for every clip,
   // unlocked once inside a user gesture so iOS keeps allowing playback.
@@ -92,6 +93,8 @@ function VoicePageInner() {
   const activeJobRef = useRef<Job | null>(null);
   const memoriesRef = useRef<{content: string}[]>([]);
   const geoRef = useRef<{lat: number; lng: number} | null>(null);
+  const geoWatchIdRef = useRef<number | null>(null);
+  const geoRetryTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const photoInputRef = useRef<HTMLInputElement | null>(null);
   const setHandsFreeWithPreference = (next: boolean) => {
     setHandsFree(next);
@@ -264,6 +267,56 @@ function VoicePageInner() {
     doSend(text, sessionMessagesRef.current, doctrineRef.current, activeJobRef.current, memoriesRef.current);
   };
 
+  // ─── Live GPS — watch continuously, retry on transient failures ───
+  // The old one-shot getCurrentPosition (5s timeout, no retry) is why Remy
+  // sometimes had "0 GPS" all day: one cold fix failure blinded the session.
+
+  const stopGeoWatch = () => {
+    if (geoRetryTimerRef.current) { clearTimeout(geoRetryTimerRef.current); geoRetryTimerRef.current = null; }
+    if (geoWatchIdRef.current !== null && navigator.geolocation) {
+      navigator.geolocation.clearWatch(geoWatchIdRef.current);
+      geoWatchIdRef.current = null;
+    }
+  };
+
+  const startGeoWatch = () => {
+    if (typeof navigator === 'undefined' || !navigator.geolocation || geoWatchIdRef.current !== null) return;
+    if (geoRef.current === null) setGpsStatus('locating');
+
+    // Fast first fix: a 10-minute-old cached position beats nothing while
+    // the high-accuracy watch warms up.
+    navigator.geolocation.getCurrentPosition(
+      (pos) => {
+        if (geoRef.current === null) {
+          geoRef.current = { lat: pos.coords.latitude, lng: pos.coords.longitude };
+          setGpsStatus('on');
+        }
+      },
+      () => {},
+      { enableHighAccuracy: false, timeout: 4000, maximumAge: 10 * 60 * 1000 }
+    );
+
+    geoWatchIdRef.current = navigator.geolocation.watchPosition(
+      (pos) => {
+        geoRef.current = { lat: pos.coords.latitude, lng: pos.coords.longitude };
+        setGpsStatus('on');
+      },
+      (err) => {
+        if (err.code === err.PERMISSION_DENIED) {
+          stopGeoWatch();
+          geoRef.current = null;
+          setGpsStatus('off');
+          return;
+        }
+        // Timeout / temporarily unavailable: keep the last fix, restart the watch
+        stopGeoWatch();
+        if (geoRef.current === null) setGpsStatus('locating');
+        geoRetryTimerRef.current = setTimeout(() => startGeoWatch(), 15000);
+      },
+      { enableHighAccuracy: true, timeout: 20000, maximumAge: 30000 }
+    );
+  };
+
   const bustDoctrine = async () => {
     if (!user) return;
     const key = `remy_doctrine_${user.id}`;
@@ -326,13 +379,7 @@ function VoicePageInner() {
     const clerkId = user!.id;
     const companyId = profile?.company_id;
 
-    if (navigator.geolocation) {
-      navigator.geolocation.getCurrentPosition(
-        (pos) => { geoRef.current = { lat: pos.coords.latitude, lng: pos.coords.longitude }; },
-        () => {},
-        { enableHighAccuracy: true, timeout: 5000 }
-      );
-    }
+    startGeoWatch();
 
     const [jobData, doctrine, memData, notesData] = await Promise.all([
       fetch(`/api/jobs?clerkId=${clerkId}`).then(r => r.json()).then(d => d.jobs || []).catch(() => []),
@@ -985,6 +1032,9 @@ function VoicePageInner() {
     return () => { window.removeEventListener('beforeunload', saveSession); saveSession(); };
   }, []);
 
+  // Stop the GPS watch when leaving the page
+  useEffect(() => () => stopGeoWatch(), []);
+
   // AirPods / headphone media controls via MediaSession API
   useEffect(() => {
     if (!('mediaSession' in navigator)) return;
@@ -1075,6 +1125,24 @@ function VoicePageInner() {
         </div>
 
         <div style={{ display: 'flex', alignItems: 'center', gap: '8px', position: 'relative' }}>
+          <button
+            onClick={() => { stopGeoWatch(); startGeoWatch(); }}
+            title={gpsStatus === 'on' ? 'GPS locked — Remy knows where you are' : gpsStatus === 'locating' ? 'Getting GPS fix… tap to retry' : 'No GPS — tap to retry, or allow location for this site'}
+            style={{ padding: '4px 7px', borderRadius: '50%', border: 'none', background: 'transparent', cursor: 'pointer', fontSize: '0.85rem', lineHeight: 1, filter: gpsStatus === 'on' ? 'none' : 'grayscale(1)', opacity: gpsStatus === 'on' ? 1 : gpsStatus === 'locating' ? 0.7 : 0.4, transition: 'all 0.3s' }}
+          >
+            📍
+          </button>
+          {activeJob?.address && (
+            <a
+              href={`https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(activeJob.address)}`}
+              target="_blank"
+              rel="noopener noreferrer"
+              title={`Navigate to ${activeJob.customer_name}`}
+              style={{ padding: '4px 7px', borderRadius: '50%', textDecoration: 'none', fontSize: '0.85rem', lineHeight: 1 }}
+            >
+              🧭
+            </a>
+          )}
           {audioPlaybackBlocked && (
             <button
               onClick={resumeAudioPlayback}

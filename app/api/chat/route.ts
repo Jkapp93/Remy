@@ -12,12 +12,61 @@ const PLAN_LIMITS: Record<string, number> = { free: 20, solo: 150, command: 500,
 // public key until the new var is configured everywhere.
 const MAPS_KEY = process.env.GOOGLE_MAPS_KEY || process.env.NEXT_PUBLIC_GOOGLE_MAPS_KEY;
 
-async function getWeather(address: string) {
+// Geocode results barely change — cache per warm serverless instance so a
+// rep chatting at one job doesn't pay Google per message.
+const geocodeCache = new Map<string, { lat: number; lng: number; formatted: string }>();
+const reverseGeocodeCache = new Map<string, string>();
+
+async function geocodeAddress(address: string) {
+  const key = address.toLowerCase().trim();
+  const cached = geocodeCache.get(key);
+  if (cached) return cached;
   try {
-    const geoRes = await fetch(`https://maps.googleapis.com/maps/api/geocode/json?address=${encodeURIComponent(address)}&key=${MAPS_KEY}`);
-    const geoData = await geoRes.json();
-    if (!geoData.results?.[0]) return null;
-    const { lat, lng } = geoData.results[0].geometry.location;
+    const res = await fetch(`https://maps.googleapis.com/maps/api/geocode/json?address=${encodeURIComponent(address)}&key=${MAPS_KEY}`);
+    const data = await res.json();
+    if (!data.results?.[0]) return null;
+    const result = {
+      lat: data.results[0].geometry.location.lat,
+      lng: data.results[0].geometry.location.lng,
+      formatted: data.results[0].formatted_address as string,
+    };
+    geocodeCache.set(key, result);
+    return result;
+  } catch { return null; }
+}
+
+// "Where am I?" — turn live GPS into a street/city the model can actually say.
+async function reverseGeocode(lat: number, lng: number) {
+  const key = `${lat.toFixed(3)},${lng.toFixed(3)}`; // ~100m buckets
+  const cached = reverseGeocodeCache.get(key);
+  if (cached) return cached;
+  try {
+    const res = await fetch(`https://maps.googleapis.com/maps/api/geocode/json?latlng=${lat},${lng}&key=${MAPS_KEY}`);
+    const data = await res.json();
+    const formatted = data.results?.[0]?.formatted_address as string | undefined;
+    if (!formatted) return null;
+    reverseGeocodeCache.set(key, formatted);
+    return formatted;
+  } catch { return null; }
+}
+
+function milesBetween(lat1: number, lng1: number, lat2: number, lng2: number) {
+  const toRad = (d: number) => (d * Math.PI) / 180;
+  const dLat = toRad(lat2 - lat1);
+  const dLng = toRad(lng2 - lng1);
+  const a = Math.sin(dLat / 2) ** 2 + Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLng / 2) ** 2;
+  return 3958.8 * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+}
+
+async function getWeather(address: string | null, directLat?: number, directLng?: number) {
+  try {
+    let lat = directLat, lng = directLng;
+    if ((lat === undefined || lng === undefined) && address) {
+      const geo = await geocodeAddress(address);
+      if (!geo) return null;
+      lat = geo.lat; lng = geo.lng;
+    }
+    if (lat === undefined || lng === undefined) return null;
     const res = await fetch(`https://api.openweathermap.org/data/2.5/weather?lat=${lat}&lon=${lng}&appid=${process.env.OPENWEATHERMAP_API_KEY}&units=imperial`);
     const data = await res.json();
     const conditions = data.weather[0].description.toLowerCase();
@@ -153,6 +202,11 @@ export async function POST(req: NextRequest) {
 
     let contextAdditions = '';
 
+    if (!hasGps) {
+      // Never let her bluff about location — and tell the rep how to fix it.
+      contextAdditions += `\nNO GPS: the rep's phone is not sharing location right now. If they ask where they are or for anything nearby, say you don't have a GPS fix (don't guess) and tell them to tap the location pin at the top of the screen or allow location for this site.\n`;
+    }
+
     if (canLookup) {
       const needsWeather = lastMsgLower.includes('weather') || lastMsgLower.includes('rain') || lastMsgLower.includes('storm') || lastMsgLower.includes('brief');
       const needsFood = lastMsgLower.includes('eat') || lastMsgLower.includes('lunch') || lastMsgLower.includes('food') || lastMsgLower.includes('hungry') || lastMsgLower.includes('restaurant') || lastMsgLower.includes('chick') || lastMsgLower.includes('burger') || lastMsgLower.includes('closest') || lastMsgLower.includes('near me') || lastMsgLower.includes('nearby') || lastMsgLower.includes('where') || lastMsgLower.includes('grab');
@@ -160,12 +214,22 @@ export async function POST(req: NextRequest) {
       const needsHardware = lastMsgLower.includes('hardware') || lastMsgLower.includes('supplies') || lastMsgLower.includes('home depot') || lastMsgLower.includes('lowes');
 
       const addr = jobAddress || '';
-      const [weather, food, gas, hardware] = await Promise.all([
-        needsWeather && hasAddress ? getWeather(addr) : Promise.resolve(null),
+      const [repPlace, jobGeo, weather, food, gas, hardware] = await Promise.all([
+        hasGps ? reverseGeocode(userLat, userLng) : Promise.resolve(null),
+        hasGps && hasAddress ? geocodeAddress(addr) : Promise.resolve(null),
+        needsWeather ? getWeather(hasAddress ? addr : null, hasAddress ? undefined : userLat, hasAddress ? undefined : userLng) : Promise.resolve(null),
         needsFood ? getNearbyPlaces(addr, 'restaurant', userLat, userLng) : Promise.resolve(null),
         needsGas ? getNearbyPlaces(addr, 'gas_station', userLat, userLng) : Promise.resolve(null),
         needsHardware ? getNearbyPlaces(addr, 'hardware_store', userLat, userLng) : Promise.resolve(null),
       ]);
+
+      // She should ALWAYS know where she is when GPS is live — not only
+      // when the rep happens to say a magic keyword.
+      if (repPlace) contextAdditions += `\nREP'S CURRENT LOCATION (live GPS): ${repPlace}\n`;
+      if (jobGeo) {
+        const miles = milesBetween(userLat, userLng, jobGeo.lat, jobGeo.lng);
+        contextAdditions += `\nDISTANCE TO CURRENT JOB: about ${miles < 0.2 ? 'there now — under a quarter mile' : `${miles.toFixed(miles < 10 ? 1 : 0)} miles (straight line)`}.\n`;
+      }
 
       if (weather) {
         contextAdditions += `\nWEATHER AT JOB: ${weather.summary}\n`;
