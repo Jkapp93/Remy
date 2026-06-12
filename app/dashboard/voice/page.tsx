@@ -1016,11 +1016,17 @@ function VoicePageInner() {
       recognition.interimResults = true;
       recognition.lang = 'en-US';
 
-      // Zombie-session watchdog: iOS Safari (especially right after Bluetooth
-      // audio switches modes) sometimes hands us a recognition session that
-      // looks live but never delivers results or fires onend. A session that
-      // has heard NOTHING gets killed fast (7s — restarts are invisible to
-      // the user); once speech starts flowing, the window relaxes to 20s.
+      // iOS Safari often streams interim words but never stamps isFinal and
+      // never fires onend — the session hangs alive while the rep's words
+      // sit in the draft box. Track what we've heard so the timers below can
+      // finalize on silence instead of waiting for Apple.
+      let pendingTranscript = '';
+      let sent = false;
+
+      // Dual-purpose watchdog:
+      // - No words heard yet → zombie session, kill fast (7s) and restart
+      // - Words heard, then silence → the rep finished talking; SEND what we
+      //   heard (3s window armed by each result) instead of discarding it
       const clearWatchdog = () => {
         if (recWatchdogRef.current) { clearTimeout(recWatchdogRef.current); recWatchdogRef.current = null; }
       };
@@ -1029,6 +1035,17 @@ function VoicePageInner() {
         recWatchdogRef.current = setTimeout(() => {
           recWatchdogRef.current = null;
           if (recognitionRef.current !== recognition) return;
+          if (pendingTranscript && !sent) {
+            sent = true;
+            voiceCrumb('silence finalizer closed the turn', { chars: pendingTranscript.length });
+            try { recognition.abort(); } catch {}
+            recognitionRef.current = null;
+            listeningRef.current = false;
+            setListening(false);
+            setInput('');
+            handleSpokenText(pendingTranscript);
+            return;
+          }
           voiceWarn('voice: zombie mic session recovered by watchdog', { windowMs: ms });
           try { recognition.abort(); } catch {}
           recognitionRef.current = null;
@@ -1040,15 +1057,11 @@ function VoicePageInner() {
       };
       armWatchdog(7000);
 
-      // iOS Safari often delivers interim results but never marks anything
-      // isFinal — especially right after Bluetooth audio mode flips. Track
-      // the latest interim so onend can send it instead of discarding it.
-      let pendingTranscript = '';
-      let sent = false;
-
       recognition.onstart = () => setListening(true);
       recognition.onresult = (e: any) => {
-        armWatchdog(20000);
+        // Each result re-arms the 3s silence window: stop talking for 3s
+        // and whatever was heard gets sent, isFinal or not.
+        armWatchdog(3000);
         const allTranscript = Array.from(e.results)
           .map((result: any) => result[0]?.transcript || '')
           .join(' ')
@@ -1407,7 +1420,12 @@ function VoicePageInner() {
 
         <div style={{ display: 'flex', alignItems: 'center', gap: '8px', position: 'relative' }}>
           <button
-            onClick={() => { stopGeoWatch(); startGeoWatch(); }}
+            onClick={() => {
+              setTtsStatus(gpsStatus === 'on' ? 'GPS locked — Remy knows where you are.' : 'Refreshing GPS fix…');
+              setTimeout(() => setTtsStatus(s => s.startsWith('GPS locked') || s.startsWith('Refreshing GPS') ? '' : s), 2500);
+              stopGeoWatch();
+              startGeoWatch();
+            }}
             title={gpsStatus === 'on' ? 'GPS locked — Remy knows where you are' : gpsStatus === 'locating' ? 'Getting GPS fix… tap to retry' : 'No GPS — tap to retry, or allow location for this site'}
             style={{ padding: '4px 7px', borderRadius: '50%', border: 'none', background: 'transparent', cursor: 'pointer', fontSize: '0.85rem', lineHeight: 1, filter: gpsStatus === 'on' ? 'none' : 'grayscale(1)', opacity: gpsStatus === 'on' ? 1 : gpsStatus === 'locating' ? 0.7 : 0.4, transition: 'all 0.3s' }}
           >
