@@ -100,6 +100,10 @@ function VoicePageInner() {
   const micRestartTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const recWatchdogRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const playFailsafeRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // iOS will not show the mic permission prompt without a user gesture —
+  // auto-starting the mic at page load gets silently denied. Wait for the
+  // first tap (the 📍 ritual) before ever opening the mic.
+  const gestureSeenRef = useRef(false);
 
   // Refs for legacy push-to-talk fallback
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
@@ -424,9 +428,14 @@ function VoicePageInner() {
   useEffect(() => { speakingRef.current = speaking; }, [speaking]);
   useEffect(() => { listeningRef.current = listening; }, [listening]);
 
-  // First tap anywhere unlocks audio playback for the session (iOS autoplay)
+  // First tap anywhere unlocks audio playback AND arms the mic — iOS needs a
+  // real gesture for both the autoplay unlock and the mic permission prompt
   useEffect(() => {
-    const prime = () => primeAudio();
+    const prime = () => {
+      gestureSeenRef.current = true;
+      primeAudio();
+      if (handsFreeRef.current) queueHandsFreeRestart(150);
+    };
     window.addEventListener('pointerdown', prime, { once: true });
     window.addEventListener('touchstart', prime, { once: true });
     return () => {
@@ -989,6 +998,9 @@ function VoicePageInner() {
   // ─── Hands-free VAD via Web Speech API ───
 
   const startVADListening = () => {
+    // No mic before the first tap: iOS silently denies permission prompts
+    // requested without a user gesture, which used to auto-disable hands-free.
+    if (!gestureSeenRef.current) return;
     // Never open the mic while Remy is loading, talking, or about to talk —
     // an active recognition session mutes media playback on iOS.
     if (loadingRef.current || listeningRef.current || recognitionRef.current) return;
@@ -1056,8 +1068,13 @@ function VoicePageInner() {
           voiceCrumb('mic error', { code: e.error });
         }
         if (e?.error === 'not-allowed' || e?.error === 'service-not-allowed' || e?.error === 'audio-capture') {
-          voiceWarn('voice: mic permission lost, hands-free disabled', { code: e.error });
-          setHandsFreeWithPreference(false);
+          // Session-only stop: a denied/blocked mic must NOT overwrite the
+          // rep's saved hands-free preference — that made every next visit
+          // open with hands-free mysteriously off.
+          voiceWarn('voice: mic permission blocked, hands-free paused this session', { code: e.error });
+          setHandsFree(false);
+          handsFreeRef.current = false;
+          setTtsStatus('Mic is blocked. Tap Hands-Free, then Allow when Safari asks.');
           return;
         }
         queueHandsFreeRestart(500);
@@ -1177,7 +1194,7 @@ function VoicePageInner() {
   // future regression), this revives the mic within ~5 seconds.
   useEffect(() => {
     const id = setInterval(() => {
-      if (!handsFreeRef.current) return;
+      if (!handsFreeRef.current || !gestureSeenRef.current) return;
       if (typeof document !== 'undefined' && document.visibilityState !== 'visible') return;
       if (micRestartTimerRef.current) return; // a restart is already scheduled
       if (speechPipelineIdle()) {
