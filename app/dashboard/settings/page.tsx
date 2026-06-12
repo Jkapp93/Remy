@@ -26,12 +26,24 @@ export default function SettingsPage() {
   const [crmWebhook, setCrmWebhook] = useState('');
   const [savingWebhook, setSavingWebhook] = useState(false);
   const [webhookSaved, setWebhookSaved] = useState(false);
+  const [voiceUsage, setVoiceUsage] = useState<{ plan: string; used: number; allowed: number; remaining: number; overage: number } | null>(null);
 
   useEffect(() => {
     const saved = localStorage.getItem('remy_voice');
     if (saved) setSelectedVoice(saved);
     loadSharePref();
+    loadVoiceUsage();
   }, [user]);
+
+  const loadVoiceUsage = async () => {
+    if (!user) return;
+    try {
+      const res = await fetch('/api/voice-usage');
+      if (!res.ok) return;
+      const data = await res.json();
+      if (typeof data.used === 'number' && typeof data.allowed === 'number') setVoiceUsage(data);
+    } catch {}
+  };
 
   const loadSharePref = async () => {
     if (!user) return;
@@ -187,6 +199,37 @@ export default function SettingsPage() {
           </div>
           <div style={{ fontSize:'0.72rem', color:'#2d3f52', marginTop:'10px' }}>Voice selection saves automatically and applies to all future conversations.</div>
         </div>
+
+        {/* Voice Usage */}
+        {voiceUsage && (
+          <div style={{ marginBottom:'32px' }}>
+            <div style={{ fontSize:'0.68rem', fontWeight:600, letterSpacing:'0.12em', textTransform:'uppercase', color:'#3d5268', marginBottom:'14px' }}>Voice Usage</div>
+            <div style={{ background:'#111820', border:'1px solid rgba(255,255,255,0.07)', borderRadius:'12px', padding:'18px 20px' }}>
+              {(() => {
+                const pct = Math.min(Math.round((voiceUsage.used / Math.max(voiceUsage.allowed, 1)) * 100), 100);
+                const barColor = voiceUsage.overage > 0 || pct >= 90 ? '#c84a4a' : pct >= 70 ? '#f07a2e' : '#3daf76';
+                return (
+                  <>
+                    <div style={{ display:'flex', justifyContent:'space-between', alignItems:'baseline', marginBottom:'10px' }}>
+                      <div style={{ fontWeight:500, fontSize:'0.9rem' }}>
+                        {voiceUsage.used.toLocaleString()} <span style={{ color:'#3d5268', fontWeight:300 }}>/ {voiceUsage.allowed.toLocaleString()} voice credits this month</span>
+                      </div>
+                      <div style={{ fontSize:'0.82rem', color: barColor, fontWeight:600 }}>{pct}%</div>
+                    </div>
+                    <div style={{ height:'8px', borderRadius:'4px', background:'rgba(255,255,255,0.06)', overflow:'hidden' }}>
+                      <div style={{ height:'100%', width:`${pct}%`, borderRadius:'4px', background: barColor, transition:'width 0.4s' }} />
+                    </div>
+                    <div style={{ fontSize:'0.72rem', color:'#2d3f52', marginTop:'10px' }}>
+                      {voiceUsage.overage > 0
+                        ? `${voiceUsage.overage.toLocaleString()} credits over your ${voiceUsage.plan} plan allowance this month.`
+                        : `${voiceUsage.remaining.toLocaleString()} credits left on your ${voiceUsage.plan} plan. One credit ≈ one spoken character. Resets monthly.`}
+                    </div>
+                  </>
+                );
+              })()}
+            </div>
+          </div>
+        )}
 
         {/* Conversation Sharing */}
         <div style={{ marginBottom:'32px' }}>
