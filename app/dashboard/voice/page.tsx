@@ -4,6 +4,20 @@ import { useUser } from '@clerk/nextjs';
 import { useSearchParams, useRouter } from 'next/navigation';
 import { useProfile } from '../../../lib/useProfile';
 import Link from 'next/link';
+import * as Sentry from '@sentry/nextjs';
+
+// Voice pipeline diagnostics: breadcrumbs ride along with any Sentry event,
+// and pipeline rescues are reported as standalone warnings so field failures
+// can be reconstructed after the fact. Never log transcript content.
+const voiceCrumb = (message: string, data?: Record<string, unknown>) => {
+  try { Sentry.addBreadcrumb({ category: 'voice', message, data, level: 'info' }); } catch {}
+};
+const voiceWarn = (message: string, data?: Record<string, unknown>) => {
+  try {
+    Sentry.addBreadcrumb({ category: 'voice', message, data, level: 'warning' });
+    Sentry.captureMessage(message, 'warning');
+  } catch {}
+};
 
 const JOB_TYPE_COLORS: Record<string, string> = {
   roofing: '#f07a2e', fencing: '#4a9fd4', hvac: '#3daf76',
@@ -589,6 +603,7 @@ function VoicePageInner() {
         setSpeaking(false);
         audioPlaybackBlockedRef.current = true;
         setAudioPlaybackBlocked(true);
+        voiceCrumb('audio blocked by autoplay policy');
         setTtsStatus('Tap "Enable Audio" to hear Remy — the browser blocks sound until you interact.');
         return;
       }
@@ -689,6 +704,7 @@ function VoicePageInner() {
           } else {
             // Out of retries — speak with the device voice rather than going
             // silent, but only if nothing else is already playing.
+            voiceCrumb('tts retries exhausted', { chars: text.length });
             const fallbackPlayed = await speakWithFallback(text, 'service retry limit reached');
             if (!fallbackPlayed) {
               setTtsStatus('Voice service hiccup — skipped a line. Next reply will speak normally.');
@@ -984,6 +1000,7 @@ function VoicePageInner() {
         recWatchdogRef.current = setTimeout(() => {
           recWatchdogRef.current = null;
           if (recognitionRef.current !== recognition) return;
+          voiceWarn('voice: zombie mic session recovered by watchdog');
           try { recognition.abort(); } catch {}
           recognitionRef.current = null;
           listeningRef.current = false;
@@ -1018,7 +1035,11 @@ function VoicePageInner() {
         setListening(false);
         setInput('');
         recognitionRef.current = null;
+        if (e?.error && e.error !== 'no-speech' && e.error !== 'aborted') {
+          voiceCrumb('mic error', { code: e.error });
+        }
         if (e?.error === 'not-allowed' || e?.error === 'service-not-allowed' || e?.error === 'audio-capture') {
+          voiceWarn('voice: mic permission lost, hands-free disabled', { code: e.error });
           setHandsFreeWithPreference(false);
           return;
         }
@@ -1142,7 +1163,10 @@ function VoicePageInner() {
       if (!handsFreeRef.current) return;
       if (typeof document !== 'undefined' && document.visibilityState !== 'visible') return;
       if (micRestartTimerRef.current) return; // a restart is already scheduled
-      if (speechPipelineIdle()) startVADListening();
+      if (speechPipelineIdle()) {
+        voiceWarn('voice: heartbeat revived dead mic');
+        startVADListening();
+      }
     }, 5000);
     return () => clearInterval(id);
   }, []);
@@ -1163,6 +1187,33 @@ function VoicePageInner() {
     };
     document.addEventListener('visibilitychange', onVisibility);
     return () => document.removeEventListener('visibilitychange', onVisibility);
+  }, []);
+
+  // Running-late lookout: with a real appointment time, live GPS, and the
+  // job's coordinates, Remy does the math and speaks up BEFORE the rep is
+  // late — once per job, never mid-conversation.
+  const lateWarnedJobRef = useRef<string | null>(null);
+  useEffect(() => {
+    const id = setInterval(() => {
+      const job = activeJobRef.current;
+      const pos = geoRef.current;
+      const jg = jobGeoRef.current;
+      if (!job?.scheduled_at || !pos || !jg || jg.jobId !== job.id) return;
+      if (lateWarnedJobRef.current === job.id) return;
+      const minsUntil = (new Date(job.scheduled_at).getTime() - Date.now()) / 60000;
+      if (minsUntil <= 0 || minsUntil > 90) return; // only near-future appointments
+      const miles = metersBetween(pos, jg) / 1609.34;
+      if (miles < 0.25) return; // already on site
+      const driveMins = (miles / 28) * 60 * 1.3; // ~28mph average, +30% for real roads
+      if (driveMins <= minsUntil) return; // comfortably on time
+      if (loadingRef.current || speakingRef.current || ttsPlayingRef.current || listeningRef.current) return; // retry next tick
+      lateWarnedJobRef.current = job.id;
+      doSend(
+        `Time check: my appointment with ${job.customer_name} is at ${formatApptTime(job.scheduled_at)} and I'm still about ${miles.toFixed(1)} miles out. Give me one short sentence — am I cutting it close, and should I text them?`,
+        sessionMessagesRef.current, doctrineRef.current, job, memoriesRef.current
+      );
+    }, 60000);
+    return () => clearInterval(id);
   }, []);
 
   // Geocode the active job once so arrival detection has a target
