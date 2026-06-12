@@ -99,7 +99,7 @@ export async function POST(req: NextRequest) {
       process.env.NEXT_PUBLIC_SUPABASE_URL!,
       process.env.SUPABASE_SERVICE_ROLE_KEY!
     );
-    const { messages, doctrine, jobContext, memories, repId, jobId, systemOverride, isMorningBrief, userLat, userLng, isHandsFree } = await req.json();
+    const { messages, doctrine, jobContext, memories, repId, jobId, systemOverride, isMorningBrief, userLat, userLng, isHandsFree, localHour } = await req.json();
 
     // Auth: if repId is provided, the session must belong to that rep
     if (repId) {
@@ -250,6 +250,30 @@ export async function POST(req: NextRequest) {
 
     const { isNoteRequest, followUpDate, jobOutcome, needsFinancing, competitor, dealAmount, broadcastText } = await intentsPromise;
 
+    // End-of-day debrief: on request, or offered after an evening outcome.
+    // localHour comes from the client because server time is UTC.
+    const repLocalHour = typeof localHour === 'number' && localHour >= 0 && localHour <= 23 ? localHour : null;
+    const wantsDebrief = lastMsgLower.includes('debrief') || lastMsgLower.includes('wrap up my day') || lastMsgLower.includes('how did i do today') || lastMsgLower.includes('how was my day');
+    const eveningOutcome = !!jobOutcome && repLocalHour !== null && repLocalHour >= 16;
+    if (repId && (wantsDebrief || eveningOutcome)) {
+      try {
+        const sinceIso = new Date(Date.now() - 16 * 3600 * 1000).toISOString();
+        const { data: dayNotes } = await supabase
+          .from('job_notes')
+          .select('summary, outcome, quote_amount')
+          .eq('rep_id', repId)
+          .gte('created_at', sinceIso)
+          .limit(25);
+        if (dayNotes?.length) {
+          const sold = dayNotes.filter(n => n.outcome === 'sold').length;
+          const noSale = dayNotes.filter(n => n.outcome === 'no_sale').length;
+          const followUps = dayNotes.filter(n => n.outcome === 'follow_up').length;
+          const quoted = dayNotes.reduce((sum, n) => sum + (Number(String(n.quote_amount ?? '').replace(/[^0-9.]/g, '')) || 0), 0);
+          contextAdditions += `\nDAY SO FAR (from logged notes): ${dayNotes.length} notes, ${sold} sold, ${noSale} no-sale, ${followUps} follow-up${followUps === 1 ? '' : 's'}${quoted > 0 ? `, ~$${Math.round(quoted).toLocaleString()} quoted` : ''}. ${wantsDebrief ? 'Rep asked for a day debrief: give a tight, motivating wrap-up with these numbers and one concrete first move for tomorrow.' : 'If this reads like their last job today, offer a quick day debrief.'}\n`;
+        }
+      } catch (e) { console.error('Debrief lookup failed:', e); }
+    }
+
     if (isNoteRequest) contextAdditions += `\nRep wants to log a note. Confirm what you captured and that it is saved.\n`;
     if (followUpDate) contextAdditions += `\nFollow-up mentioned: ${followUpDate}. Confirm you noted it.\n`;
     if (jobOutcome) contextAdditions += `\nJob outcome detected: ${jobOutcome}. Acknowledge it and confirm you logged it.\n`;
@@ -274,7 +298,8 @@ export async function POST(req: NextRequest) {
     const dynamicContext = `Today is ${today}. Time: ${timeNow}.${hour >= 10 && hour <= 14 ? ' Lunch window.' : ''}
 ${jobContext ? `\nCURRENT JOB:\n${jobContext}\n` : ''}${memorySection}${contextAdditions}${compactHandsFreeContext}`;
 
-    const maxTokens = isHandsFree ? 180 : (isMorningBrief ? 500 : repId || isMobile ? 300 : 200);
+    // A debrief needs room for the numbers even in hands-free
+    const maxTokens = wantsDebrief ? 350 : isHandsFree ? 180 : (isMorningBrief ? 500 : repId || isMobile ? 300 : 200);
 
     // Stream Claude response — client receives text as it generates
     const claudeStream = anthropic.messages.stream({

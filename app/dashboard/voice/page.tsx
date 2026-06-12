@@ -95,6 +95,9 @@ function VoicePageInner() {
   const geoRef = useRef<{lat: number; lng: number} | null>(null);
   const geoWatchIdRef = useRef<number | null>(null);
   const geoRetryTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // Arrival detection: geocoded coords of the active job + hysteresis state
+  const jobGeoRef = useRef<{ jobId: string; lat: number; lng: number } | null>(null);
+  const arrivalStateRef = useRef<{ jobId: string; wasFar: boolean; fired: boolean } | null>(null);
   const photoInputRef = useRef<HTMLInputElement | null>(null);
   const setHandsFreeWithPreference = (next: boolean) => {
     setHandsFree(next);
@@ -267,6 +270,35 @@ function VoicePageInner() {
     doSend(text, sessionMessagesRef.current, doctrineRef.current, activeJobRef.current, memoriesRef.current);
   };
 
+  const metersBetween = (a: {lat: number; lng: number}, b: {lat: number; lng: number}) => {
+    const toRad = (d: number) => (d * Math.PI) / 180;
+    const dLat = toRad(b.lat - a.lat);
+    const dLng = toRad(b.lng - a.lng);
+    const h = Math.sin(dLat / 2) ** 2 + Math.cos(toRad(a.lat)) * Math.cos(toRad(b.lat)) * Math.sin(dLng / 2) ** 2;
+    return 6371000 * 2 * Math.atan2(Math.sqrt(h), Math.sqrt(1 - h));
+  };
+
+  // Auto-brief on arrival: fires once per job, only after the rep has been
+  // >400m away (hysteresis — selecting a job while parked at it won't fire).
+  const checkArrival = () => {
+    const pos = geoRef.current;
+    const jg = jobGeoRef.current;
+    const st = arrivalStateRef.current;
+    const job = activeJobRef.current;
+    if (!pos || !jg || !st || !job || jg.jobId !== job.id || st.jobId !== job.id || st.fired) return;
+    const meters = metersBetween(pos, jg);
+    if (meters > 400) { st.wasFar = true; return; }
+    if (meters <= 200 && st.wasFar) {
+      // Don't barge into an active exchange — next GPS tick will retry
+      if (loadingRef.current || speakingRef.current || ttsPlayingRef.current || listeningRef.current) return;
+      st.fired = true;
+      doSend(
+        `I just pulled up to ${job.customer_name}. Give me the 15-second pre-knock: who they are, the one thing to remember from the notes, and my opener.`,
+        sessionMessagesRef.current, doctrineRef.current, job, memoriesRef.current
+      );
+    }
+  };
+
   // ─── Live GPS — watch continuously, retry on transient failures ───
   // The old one-shot getCurrentPosition (5s timeout, no retry) is why Remy
   // sometimes had "0 GPS" all day: one cold fix failure blinded the session.
@@ -300,6 +332,7 @@ function VoicePageInner() {
       (pos) => {
         geoRef.current = { lat: pos.coords.latitude, lng: pos.coords.longitude };
         setGpsStatus('on');
+        checkArrival();
       },
       (err) => {
         if (err.code === err.PERMISSION_DENIED) {
@@ -719,6 +752,7 @@ function VoicePageInner() {
           userLat: geoRef.current?.lat,
           userLng: geoRef.current?.lng,
           isHandsFree: handsFreeRef.current,
+          localHour: new Date().getHours(),
         }),
       });
 
@@ -1038,6 +1072,25 @@ function VoicePageInner() {
   // Stop the GPS watch when leaving the page
   useEffect(() => () => stopGeoWatch(), []);
 
+  // Geocode the active job once so arrival detection has a target
+  useEffect(() => {
+    jobGeoRef.current = null;
+    arrivalStateRef.current = null;
+    if (!activeJob?.id || !activeJob.address) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await fetch(`/api/geo?action=geocode&address=${encodeURIComponent(activeJob.address)}`);
+        const data = await res.json();
+        if (!cancelled && data.location?.lat && data.location?.lng) {
+          jobGeoRef.current = { jobId: activeJob.id, lat: data.location.lat, lng: data.location.lng };
+          arrivalStateRef.current = { jobId: activeJob.id, wasFar: false, fired: false };
+        }
+      } catch {}
+    })();
+    return () => { cancelled = true; };
+  }, [activeJob?.id]);
+
   // AirPods / headphone media controls via MediaSession API
   useEffect(() => {
     if (!('mediaSession' in navigator)) return;
@@ -1090,12 +1143,30 @@ function VoicePageInner() {
     );
   };
 
-  const briefDay = () => {
-    const jobList = jobs.slice(0, 5).map(j => `${j.customer_name}${j.address ? ` at ${j.address}` : ''}${j.deal_value ? ` ($${j.deal_value.toLocaleString()})` : ''}`).join(', ');
+  const briefDay = async () => {
+    // With live GPS, order the day's jobs nearest-first so the brief doubles
+    // as a route plan. Geocode failures just fall back to the original order.
+    let ordered = jobs;
+    let routeNote = '';
+    const pos = geoRef.current;
+    if (pos && jobs.length > 1 && jobs.some(j => j.address)) {
+      try {
+        const withDist = await Promise.all(jobs.slice(0, 6).map(async j => {
+          if (!j.address) return { j, d: Number.MAX_SAFE_INTEGER };
+          try {
+            const r = await fetch(`/api/geo?action=geocode&address=${encodeURIComponent(j.address)}`).then(res => res.json());
+            return { j, d: r.location?.lat ? metersBetween(pos, r.location) : Number.MAX_SAFE_INTEGER };
+          } catch { return { j, d: Number.MAX_SAFE_INTEGER }; }
+        }));
+        ordered = withDist.sort((a, b) => a.d - b.d).map(x => x.j);
+        routeNote = ' (listed nearest-first from my current location — treat it as my route order)';
+      } catch {}
+    }
+    const jobList = ordered.slice(0, 5).map(j => `${j.customer_name}${j.address ? ` at ${j.address}` : ''}${j.deal_value ? ` ($${j.deal_value.toLocaleString()})` : ''}`).join(', ');
     const pipelineVal = jobs.reduce((sum, j) => sum + (j.deal_value || 0), 0);
     const fuNote = followUpCount > 0 ? ` ${followUpCount} follow-up${followUpCount > 1 ? 's' : ''} pending.` : '';
     const pipeNote = pipelineVal > 0 ? ` Total pipeline today: $${pipelineVal.toLocaleString()}.` : '';
-    doSend(`Give me a quick morning brief.${fuNote}${pipeNote} I have ${jobs.length} active job${jobs.length !== 1 ? 's' : ''} today: ${jobList}. What should I know to start strong?`, sessionMessagesRef.current, doctrineRef.current, null, memoriesRef.current);
+    doSend(`Give me a quick morning brief.${fuNote}${pipeNote} I have ${jobs.length} active job${jobs.length !== 1 ? 's' : ''} today${routeNote}: ${jobList}. What should I know to start strong?`, sessionMessagesRef.current, doctrineRef.current, null, memoriesRef.current);
   };
 
   return (
