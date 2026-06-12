@@ -99,6 +99,7 @@ function VoicePageInner() {
   const listeningRef = useRef(false);
   const micRestartTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const recWatchdogRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const playFailsafeRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Refs for legacy push-to-talk fallback
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
@@ -554,6 +555,7 @@ function VoicePageInner() {
   // ─── TTS queue — plays audio in order, starts immediately when first chunk is ready ───
 
   const handleAudioDone = () => {
+    if (playFailsafeRef.current) { clearTimeout(playFailsafeRef.current); playFailsafeRef.current = null; }
     if (currentUrlRef.current) { URL.revokeObjectURL(currentUrlRef.current); currentUrlRef.current = null; }
     playNextInQueue();
   };
@@ -583,13 +585,27 @@ function VoicePageInner() {
     if (audioQueueRef.current.length === 0) {
       ttsPlayingRef.current = false;
       setSpeaking(false);
-      queueHandsFreeRestart();
+      // Longer delay after SPEAKING ends: Bluetooth earpieces (AirPods) need
+      // a beat to switch from playback to mic mode — opening the mic mid-flip
+      // is what produces zombie recognition sessions.
+      queueHandsFreeRestart(650);
       return;
     }
     ttsPlayingRef.current = true;
     setSpeaking(true);
     const item = audioQueueRef.current.shift()!;
     currentUrlRef.current = item.url;
+    // Failsafe: if 'ended' never fires (Bluetooth stalls can eat it), force
+    // the clip done so ttsPlaying can't stay stuck true and kill the mic.
+    // Clips cap at 240 chars ≈ ~15s of speech, so 30s means genuinely stuck.
+    if (playFailsafeRef.current) clearTimeout(playFailsafeRef.current);
+    playFailsafeRef.current = setTimeout(() => {
+      playFailsafeRef.current = null;
+      if (currentUrlRef.current !== item.url) return;
+      voiceWarn('voice: stuck audio clip force-finished');
+      try { audioRef.current?.pause(); } catch {}
+      handleAudioDone();
+    }, 30000);
     const el = getAudioEl();
     el.src = item.url;
     el.play().catch((err: any) => {
@@ -988,32 +1004,33 @@ function VoicePageInner() {
       recognition.interimResults = true;
       recognition.lang = 'en-US';
 
-      // Zombie-session watchdog: iOS Safari sometimes keeps a recognition
-      // session "open" but stops delivering results AND never fires onend —
-      // the mic looks live but is dead. If nothing arrives for 20s, kill the
-      // session ourselves and restart. Any result re-arms the timer.
+      // Zombie-session watchdog: iOS Safari (especially right after Bluetooth
+      // audio switches modes) sometimes hands us a recognition session that
+      // looks live but never delivers results or fires onend. A session that
+      // has heard NOTHING gets killed fast (7s — restarts are invisible to
+      // the user); once speech starts flowing, the window relaxes to 20s.
       const clearWatchdog = () => {
         if (recWatchdogRef.current) { clearTimeout(recWatchdogRef.current); recWatchdogRef.current = null; }
       };
-      const armWatchdog = () => {
+      const armWatchdog = (ms: number) => {
         clearWatchdog();
         recWatchdogRef.current = setTimeout(() => {
           recWatchdogRef.current = null;
           if (recognitionRef.current !== recognition) return;
-          voiceWarn('voice: zombie mic session recovered by watchdog');
+          voiceWarn('voice: zombie mic session recovered by watchdog', { windowMs: ms });
           try { recognition.abort(); } catch {}
           recognitionRef.current = null;
           listeningRef.current = false;
           setListening(false);
           setInput('');
           queueHandsFreeRestart(200);
-        }, 20000);
+        }, ms);
       };
-      armWatchdog();
+      armWatchdog(7000);
 
       recognition.onstart = () => setListening(true);
       recognition.onresult = (e: any) => {
-        armWatchdog();
+        armWatchdog(20000);
         const allTranscript = Array.from(e.results)
           .map((result: any) => result[0]?.transcript || '')
           .join(' ')
