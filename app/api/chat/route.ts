@@ -6,7 +6,7 @@ import { auth } from '@clerk/nextjs/server';
 import { extractIntents, EMPTY_INTENTS } from '@/lib/intents';
 import { buildSoul } from '@/lib/remySoul';
 
-const PLAN_LIMITS: Record<string, number> = { free: 20, solo: 150, command: 500, enterprise: 99999 };
+const PLAN_LIMITS: Record<string, number> = { free: 20, solo: 150, command: 500, pro: 500, enterprise: 99999 };
 
 // Server-only key (set GOOGLE_MAPS_KEY in Vercel). Falls back to the legacy
 // public key until the new var is configured everywhere.
@@ -50,7 +50,7 @@ export async function POST(req: NextRequest) {
       process.env.NEXT_PUBLIC_SUPABASE_URL!,
       process.env.SUPABASE_SERVICE_ROLE_KEY!
     );
-    const { messages, doctrine, jobContext, memories, repId, jobId, systemOverride, isMorningBrief, userLat, userLng } = await req.json();
+    const { messages, doctrine, jobContext, memories, repId, jobId, systemOverride, isMorningBrief, userLat, userLng, isHandsFree } = await req.json();
 
     // Auth: if repId is provided, the session must belong to that rep
     if (repId) {
@@ -203,14 +203,20 @@ export async function POST(req: NextRequest) {
     // stable across a rep's session and gets a cache breakpoint; everything
     // time- or message-dependent goes in the second, uncached block.
     const staticSoul = buildSoul({ agentName, repName, doctrine: trimmedDoctrine });
+    const compactHandsFreeContext = isHandsFree
+      ? ' \nHands-free mode is active. Keep replies brief, spoken, and practical: 1-3 short sentences, no headers, bullets, or long intros.'
+      : '';
+
     const dynamicContext = `Today is ${today}. Time: ${timeNow}.${hour >= 10 && hour <= 14 ? ' Lunch window.' : ''}
-${jobContext ? `\nCURRENT JOB:\n${jobContext}\n` : ''}${memorySection}${contextAdditions}`;
+${jobContext ? `\nCURRENT JOB:\n${jobContext}\n` : ''}${memorySection}${contextAdditions}${compactHandsFreeContext}`;
+
+    const maxTokens = isHandsFree ? 180 : (isMorningBrief ? 500 : repId || isMobile ? 300 : 200);
 
     // Stream Claude response — client receives text as it generates
     const claudeStream = anthropic.messages.stream({
       // Demo traffic gets Haiku + a tighter cap — plenty for a taste, useless as a proxy
       model: repId || isMobile ? 'claude-sonnet-4-6' : 'claude-haiku-4-5-20251001',
-      max_tokens: isMorningBrief ? 500 : repId || isMobile ? 300 : 200,
+      max_tokens: maxTokens,
       system: safeSystemOverride || [
         { type: 'text', text: staticSoul, cache_control: { type: 'ephemeral' } },
         { type: 'text', text: dynamicContext },
