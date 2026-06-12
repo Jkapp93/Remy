@@ -1,0 +1,25 @@
+name: CI
+
+# Multiple agents push directly to main — this is the net that catches a
+# broken push even when no human is watching. Typecheck + tests only: the
+# full Next build needs production env vars that CI doesn't have.
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - run: npm ci
+      - name: Typecheck
+        run: npx tsc --noEmit
+      - name: Tests
+        run: npx vitest run
