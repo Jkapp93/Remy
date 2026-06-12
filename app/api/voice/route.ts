@@ -33,6 +33,25 @@ function getUsageNumber(value: unknown): number {
 
 export async function POST(req: NextRequest) {
   try {
+    const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
+    const supabaseServiceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+    if (!supabaseUrl || !supabaseServiceRoleKey) {
+      console.error('Voice API config missing Supabase keys.');
+      return NextResponse.json(
+        { error: 'Server not configured for voice calls' },
+        { status: 503 }
+      );
+    }
+    const cartesiaKey = process.env.CARTESIA_API_KEY;
+    if (!cartesiaKey) {
+      console.error('Voice API config missing Cartesia key.');
+      return NextResponse.json(
+        { error: 'Server not configured for voice generation' },
+        { status: 503 }
+      );
+    }
+
+    const mobileApiToken = process.env.MOBILE_API_TOKEN;
     const { text, voiceId } = await req.json();
     if (typeof text !== 'string' || !text.trim()) {
       return NextResponse.json({ error: 'No text' }, { status: 400 });
@@ -49,12 +68,9 @@ export async function POST(req: NextRequest) {
     // Demo traffic keeps a strict per-IP daily cap so the endpoint can't be farmed.
     const { userId } = await auth();
     const bearer = req.headers.get('authorization')?.replace(/^Bearer\s+/i, '');
-    const isMobile = !!bearer && !!process.env.MOBILE_API_TOKEN && bearer === process.env.MOBILE_API_TOKEN;
+    const isMobile = !!bearer && !!mobileApiToken && bearer === mobileApiToken;
 
-    const supabase = createClient(
-      process.env.NEXT_PUBLIC_SUPABASE_URL!,
-      process.env.SUPABASE_SERVICE_ROLE_KEY!
-    );
+    const supabase = createClient(supabaseUrl, supabaseServiceRoleKey);
 
     let plan = 'free';
     let allowedUnits = VOICE_MONTHLY_CREDITS.free;
@@ -160,7 +176,7 @@ export async function POST(req: NextRequest) {
       method: 'POST',
       headers: {
         'Cartesia-Version': '2024-06-10',
-        'X-API-Key': process.env.CARTESIA_API_KEY!,
+        'X-API-Key': cartesiaKey,
         'Content-Type': 'application/json',
       },
       body: JSON.stringify({
@@ -178,6 +194,14 @@ export async function POST(req: NextRequest) {
       return NextResponse.json(
         { error: 'TTS failed', details: err },
         { status: response.status || 500, headers: usageHeaders }
+      );
+    }
+
+    if (!response.body) {
+      console.error('Cartesia returned empty stream body.');
+      return NextResponse.json(
+        { error: 'TTS returned no audio stream' },
+        { status: 502, headers: usageHeaders }
       );
     }
 
@@ -202,6 +226,13 @@ export async function POST(req: NextRequest) {
     return new NextResponse(response.body, { headers });
   } catch (error) {
     console.error('Voice API error:', error);
+    const message = error instanceof Error ? error.message : 'Failed';
+    if (/Missing required server environment variable/.test(message)) {
+      return NextResponse.json(
+        { error: message },
+        { status: 503 }
+      );
+    }
     return NextResponse.json({ error: 'Failed' }, { status: 500 });
   }
 }

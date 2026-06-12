@@ -205,15 +205,27 @@ function VoicePageInner() {
         ttsPlayingRef.current = true;
         setSpeaking(true);
       };
+      const timeoutMs = Math.min(Math.max(text.length * 28, 2500), 12000);
 
       try {
         window.speechSynthesis.cancel();
         window.speechSynthesis.speak(utterance);
-        timeoutId = setTimeout(() => finalize(false), 2500);
+        timeoutId = setTimeout(() => finalize(false), timeoutMs);
       } catch {
         finalize(false);
       }
     });
+  };
+
+  const speakWithFallback = async (text: string, reason: string): Promise<boolean> => {
+    const fallbackText = text.replace(/\s+/g, ' ').trim();
+    if (!fallbackText) return false;
+    if (!handsFreeRef.current || !canUseDeviceSpeech() || ttsPlayingRef.current) return false;
+    const fallbackReason = `Fallback: ${reason}`;
+    setTtsStatus(fallbackReason);
+    const result = await speakWithDeviceFallback(fallbackText);
+    if (!result) setTtsStatus(`Fallback failed (${reason}). Trying next line.`);
+    return result;
   };
 
   const getUsageHeaderNumber = (value: string | null): number | null => {
@@ -288,7 +300,11 @@ function VoicePageInner() {
   useEffect(() => {
     const prime = () => primeAudio();
     window.addEventListener('pointerdown', prime, { once: true });
-    return () => window.removeEventListener('pointerdown', prime);
+    window.addEventListener('touchstart', prime, { once: true });
+    return () => {
+      window.removeEventListener('pointerdown', prime);
+      window.removeEventListener('touchstart', prime);
+    };
   }, []);
   useEffect(() => { doctrineRef.current = doctrine; }, [doctrine]);
   useEffect(() => { activeJobRef.current = activeJob; }, [activeJob]);
@@ -457,7 +473,7 @@ function VoicePageInner() {
     el.play().catch((err: any) => {
       if (isNotAllowedPlaybackError(err)) {
         // Autoplay blocked — keep the clip queued and wait for a tap to unlock.
-        audioQueueRef.current.unshift(item);
+        URL.revokeObjectURL(item.url);
         currentUrlRef.current = null;
         ttsPlayingRef.current = false;
         setSpeaking(false);
@@ -469,7 +485,11 @@ function VoicePageInner() {
       // Transient decode/abort error — skip this clip, keep the queue moving.
       URL.revokeObjectURL(item.url);
       currentUrlRef.current = null;
-      playNextInQueue();
+      const fallbackText = item.text;
+      void (async () => {
+        await speakWithFallback(fallbackText, 'audio playback failed');
+        playNextInQueue();
+      })();
     });
   };
 
@@ -508,9 +528,23 @@ function VoicePageInner() {
       });
 
       if (res.ok) {
+        const contentType = res.headers.get('content-type')?.toLowerCase() || '';
+        if (!contentType.includes('audio') && !contentType.includes('octet-stream')) {
+          const detail = await res.text();
+          if (await speakWithFallback(`Tts response wasn't audio. ${detail}`.slice(0, 140), 'non-audio response')) {
+            return 'ok';
+          }
+          setTtsStatus('Voice response came back as non-audio. Next reply should still proceed.');
+          return 'fatal';
+        }
         const blob = await res.blob();
         updateTtsUsageBanner(res);
-        if (!blob.size) return 'ok';
+        if (!blob.size) {
+          if (await speakWithFallback('No audio returned from voice service. Skipping this line.', 'empty audio response')) {
+            return 'ok';
+          }
+          return 'fatal';
+        }
         const url = URL.createObjectURL(blob);
         audioQueueRef.current.push({ url, text });
         if (!ttsPlayingRef.current) playNextInQueue();
@@ -544,10 +578,11 @@ function VoicePageInner() {
           } else {
             // Out of retries — speak with the device voice rather than going
             // silent, but only if nothing else is already playing.
-            if (handsFreeRef.current && canUseDeviceSpeech() && !ttsPlayingRef.current) {
-              await speakWithDeviceFallback(text);
-            } else {
+            const fallbackPlayed = await speakWithFallback(text, 'service retry limit reached');
+            if (!fallbackPlayed) {
               setTtsStatus('Voice service hiccup — skipped a line. Next reply will speak normally.');
+            } else {
+              setTtsStatus('');
             }
             done = true;
           }
