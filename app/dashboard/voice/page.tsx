@@ -1167,7 +1167,7 @@ function VoicePageInner() {
       return `${j.customer_name}${j.address ? ` at ${j.address}` : ''}${mi !== undefined ? ` (~${mi < 10 ? mi.toFixed(1) : Math.round(mi)} mi from me)` : ''}${j.deal_value ? ` ($${j.deal_value.toLocaleString()})` : ''}${noteSnip}`;
     }).join('; ');
     const routeNote = distances.size > 0
-      ? ' Suggest my run order: any appointment times in the notes come first at their times, then fill the gaps nearest-first.'
+      ? ' Suggest my run order: appointment times in the notes anchor the day, fill the gaps nearest-first. BUT if the geography makes a swap clearly smarter (like I am right next to a later appointment), say so and tell me to call and flip them — name which two and why.'
       : '';
     const pipelineVal = jobs.reduce((sum, j) => sum + (j.deal_value || 0), 0);
     const fuNote = followUpCount > 0 ? ` ${followUpCount} follow-up${followUpCount > 1 ? 's' : ''} pending.` : '';
